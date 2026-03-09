@@ -1,0 +1,83 @@
+name: ci
+
+on:
+  push:
+    branches:
+      - main
+      - master
+  pull_request:
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Typecheck server
+        run: npm run typecheck
+
+      - name: Typecheck SDK packages
+        run: |
+          cd packages/client && npx tsc --noEmit
+          cd ../openai && npx tsc --noEmit
+          cd ../mcp-proxy && npx tsc --noEmit
+
+      - name: Build SDK packages
+        run: npm run build:packages
+
+      - name: Test SDK packages
+        run: |
+          cd packages/client && npx vitest run
+          cd ../openai && npx vitest run
+          cd ../mcp-proxy && npx vitest run
+
+      - name: Unit and integration tests
+        run: npm test --include-workspace-root
+
+      - name: Create env file
+        run: cp .env.example .env
+
+      - name: Start Docker stack
+        run: docker compose up --build -d
+
+      - name: Wait for API health
+        run: |
+          for attempt in $(seq 1 45); do
+            if curl --fail --silent http://localhost:3000/healthz > /tmp/toolguard-health.json; then
+              cat /tmp/toolguard-health.json
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "ToolGuard API did not become healthy in time"
+          docker compose logs api worker postgres redis
+          exit 1
+
+      - name: Run Prisma seed
+        run: npm run seed
+
+      - name: Run live acceptance flow
+        run: npm run acceptance:live
+
+      - name: Build server
+        run: npm run build
+
+      - name: Show service logs on failure
+        if: failure()
+        run: docker compose logs api worker postgres redis
+
+      - name: Stop Docker stack
+        if: always()
+        run: docker compose down --volumes --remove-orphans

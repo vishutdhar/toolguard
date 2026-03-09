@@ -1,0 +1,35 @@
+{
+  "name": "@toolguard/openai",
+  "version": "0.1.0",
+  "description": "ToolGuard integration for OpenAI function calling — authorize every tool call automatically",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@toolguard/client": "^0.1.0"
+  },
+  "peerDependencies": {
+    "openai": ">=4.0.0"
+  },
+  "devDependencies": {
+    "openai": "^4.96.0",
+    "typescript": "^5.9.3",
+    "vitest": "^4.0.18"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "license": "MIT"
+}

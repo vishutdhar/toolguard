@@ -1,0 +1,70 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: toolguard
+      POSTGRES_USER: toolguard
+      POSTGRES_PASSWORD: toolguard
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U toolguard -d toolguard"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: postgresql://toolguard:toolguard@postgres:5432/toolguard?schema=public
+      REDIS_URL: redis://redis:6379
+      STORAGE_MODE: prisma
+      BULLMQ_ENABLED: "true"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    ports:
+      - "3000:3000"
+    command: sh -c "npx prisma migrate deploy && node dist/src/server.js"
+
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: postgresql://toolguard:toolguard@postgres:5432/toolguard?schema=public
+      REDIS_URL: redis://redis:6379
+      STORAGE_MODE: prisma
+      BULLMQ_ENABLED: "true"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    command: sh -c "npx prisma migrate deploy && node dist/src/worker.js"
+
+volumes:
+  postgres-data:
+  redis-data:

@@ -1,0 +1,215 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum RiskLevel {
+  low
+  medium
+  high
+}
+
+enum ApprovalStatus {
+  pending
+  approved
+  rejected
+  expired
+}
+
+enum RunStatus {
+  started
+  completed
+  failed
+}
+
+model Organization {
+  id            String            @id @default(cuid())
+  name          String
+  createdAt     DateTime          @default(now())
+  updatedAt     DateTime          @updatedAt
+  apiKeys       ApiKey[]
+  agents        Agent[]
+  sessions      Session[]
+  tools         Tool[]
+  policies      Policy[]
+  approvals     ApprovalRequest[]
+  auditEvents   AuditEvent[]
+  runs          Run[]
+  usageCounters UsageCounter[]
+}
+
+model ApiKey {
+  id             String        @id @default(cuid())
+  organizationId String
+  name           String
+  keyHash        String        @unique
+  keyPrefix      String        @unique
+  lastUsedAt     DateTime?
+  createdAt      DateTime      @default(now())
+  revokedAt      DateTime?
+  organization   Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId])
+}
+
+model Agent {
+  id             String        @id @default(cuid())
+  organizationId String
+  name           String
+  description    String?
+  environment    String
+  defaultScopes  Json
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+  organization   Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  sessions       Session[]
+
+  @@index([organizationId])
+  @@unique([organizationId, name])
+}
+
+model Session {
+  id               String        @id @default(cuid())
+  organizationId   String
+  agentId          String
+  userId           String?
+  servicePrincipal String?
+  environment      String
+  scopes           Json
+  metadata         Json
+  startedAt        DateTime      @default(now())
+  endedAt          DateTime?
+  organization     Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  agent            Agent         @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  approvals        ApprovalRequest[]
+  auditEvents      AuditEvent[]
+  runs             Run[]
+
+  @@index([organizationId])
+  @@index([agentId])
+}
+
+model Tool {
+  id             String        @id @default(cuid())
+  organizationId String
+  name           String
+  action         String
+  resource       String
+  description    String?
+  riskLevel      RiskLevel
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+  organization   Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId])
+  @@unique([organizationId, name])
+}
+
+model Policy {
+  id             String           @id @default(cuid())
+  organizationId String
+  name           String
+  description    String?
+  isActive       Boolean          @default(true)
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+  organization   Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  versions       PolicyVersion[]
+
+  @@index([organizationId])
+}
+
+model PolicyVersion {
+  id            String     @id @default(cuid())
+  policyId      String
+  versionNumber Int
+  rulesJson     Json
+  createdAt     DateTime   @default(now())
+  policy        Policy     @relation(fields: [policyId], references: [id], onDelete: Cascade)
+
+  @@unique([policyId, versionNumber])
+  @@index([policyId])
+}
+
+model ApprovalRequest {
+  id                 String          @id @default(cuid())
+  organizationId     String
+  sessionId          String
+  runId              String?
+  status             ApprovalStatus
+  reasonCodes        Json
+  toolName           String
+  action             String
+  resource           String
+  justification      String?
+  requestedByAgentId String
+  resolvedBy         String?
+  resolvedAt         DateTime?
+  expiresAt          DateTime?
+  createdAt          DateTime        @default(now())
+  organization       Organization    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  session            Session         @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  run                Run?            @relation(fields: [runId], references: [id], onDelete: SetNull)
+
+  @@index([organizationId])
+  @@index([sessionId])
+  @@index([runId])
+}
+
+model AuditEvent {
+  id             String        @id @default(cuid())
+  organizationId String
+  sessionId      String?
+  runId          String?
+  eventType      String
+  actorType      String
+  actorId        String?
+  payload        Json
+  createdAt      DateTime      @default(now())
+  organization   Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  session        Session?      @relation(fields: [sessionId], references: [id], onDelete: SetNull)
+  run            Run?          @relation(fields: [runId], references: [id], onDelete: SetNull)
+
+  @@index([organizationId])
+  @@index([sessionId])
+  @@index([runId, createdAt])
+}
+
+model Run {
+  id             String           @id @default(cuid())
+  organizationId String
+  sessionId      String
+  promptSummary  String?
+  status         RunStatus
+  startedAt      DateTime         @default(now())
+  completedAt    DateTime?
+  metadata       Json
+  organization   Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  session        Session          @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  approvals      ApprovalRequest[]
+  auditEvents    AuditEvent[]
+
+  @@index([organizationId])
+  @@index([sessionId])
+}
+
+model UsageCounter {
+  id             String        @id @default(cuid())
+  organizationId String
+  agentId        String?
+  toolName       String?
+  windowKey      String
+  scopeKey       String        @unique
+  requestCount   Int           @default(0)
+  spendUsd       Decimal       @default(0) @db.Decimal(12, 2)
+  tokenCount     Int           @default(0)
+  updatedAt      DateTime      @updatedAt
+  organization   Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId])
+  @@index([windowKey])
+}

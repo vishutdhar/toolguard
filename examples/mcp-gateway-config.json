@@ -1,0 +1,18 @@
+{
+  "toolguard": {
+    "baseUrl": "http://localhost:3000",
+    "orgId": "YOUR_ORG_ID",
+    "agentId": "YOUR_AGENT_ID"
+  },
+  "session": {
+    "environment": "production",
+    "scopes": ["filesystem:read", "slack:write", "gmail:send"],
+    "userId": "operator@yourcompany.com"
+  },
+  "toolMapping": {
+    "read_file": "filesystem.read",
+    "write_file": "filesystem.write",
+    "post_slack_message": "slack.post_message",
+    "send_email": "gmail.send_email"
+  }
+}
