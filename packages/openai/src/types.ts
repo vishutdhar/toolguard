@@ -11,7 +11,8 @@ export interface GuardedTool<TArgs = unknown> {
   };
 }
 
-export type GuardedToolMap = Record<string, GuardedTool>;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export type GuardedToolMap = Record<string, GuardedTool<any>>;
 
 export interface ExecutorOptions {
   runId?: string;

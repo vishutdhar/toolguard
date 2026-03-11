@@ -385,7 +385,7 @@ export class AuthorizationService {
       agent,
       run,
       tool,
-      estimatedCostUsd: input.tool.estimatedCostUsd ?? 0,
+      estimatedCostUsd: tool.estimatedCostUsd,
       tokenCount: input.tokenCount ?? 0,
       policyContext: {
         ...input.context,

@@ -113,10 +113,16 @@ function mapTool(record: {
   resource: string;
   description: string | null;
   riskLevel: Tool["riskLevel"];
+  estimatedCostUsd: { toNumber(): number } | number;
   createdAt: Date;
   updatedAt: Date;
 }): Tool {
-  return { ...record };
+  return {
+    ...record,
+    estimatedCostUsd: typeof record.estimatedCostUsd === "number"
+      ? record.estimatedCostUsd
+      : record.estimatedCostUsd.toNumber(),
+  };
 }
 
 function mapPolicy(record: {
@@ -387,7 +393,24 @@ export class PrismaDataStore implements DataStore {
     return approval ? mapApproval(approval) : null;
   }
 
-  async updateApprovalRequest(id: string, input: UpdateApprovalRequestInput): Promise<ApprovalRequest> {
+  async updateApprovalRequest(id: string, input: UpdateApprovalRequestInput, expectedStatus?: ApprovalRequest["status"]): Promise<ApprovalRequest> {
+    if (expectedStatus !== undefined) {
+      // Atomic compare-and-swap: only update if current status matches
+      const result = await this.client.approvalRequest.updateMany({
+        where: { id, status: expectedStatus },
+        data: input,
+      });
+      if (result.count === 0) {
+        throw Object.assign(
+          new Error(`Approval status has changed (expected ${expectedStatus})`),
+          { statusCode: 409, code: "APPROVAL_STATUS_CHANGED" },
+        );
+      }
+      // Fetch the updated record to return
+      const updated = await this.client.approvalRequest.findUniqueOrThrow({ where: { id } });
+      return mapApproval(updated);
+    }
+
     return mapApproval(
       await this.client.approvalRequest.update({
         where: { id },

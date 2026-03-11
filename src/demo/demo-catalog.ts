@@ -12,6 +12,7 @@ export const demoToolCatalog = [
     resource: "internal_channel",
     description: "Post an internal Slack message",
     riskLevel: "low",
+    estimatedCostUsd: 0,
   },
   {
     name: "gmail.send_email",
@@ -19,6 +20,7 @@ export const demoToolCatalog = [
     resource: "external_email",
     description: "Send an external Gmail message",
     riskLevel: "high",
+    estimatedCostUsd: 0,
   },
   {
     name: "stripe.refund",
@@ -26,6 +28,7 @@ export const demoToolCatalog = [
     resource: "payment",
     description: "Issue a Stripe refund",
     riskLevel: "high",
+    estimatedCostUsd: 0,
   },
   {
     name: "shell.exec",
@@ -33,6 +36,7 @@ export const demoToolCatalog = [
     resource: "shell",
     description: "Execute a shell command",
     riskLevel: "high",
+    estimatedCostUsd: 0,
   },
   {
     name: "customer.export_csv",
@@ -40,6 +44,7 @@ export const demoToolCatalog = [
     resource: "customer_data",
     description: "Export customer data",
     riskLevel: "high",
+    estimatedCostUsd: 0,
   },
 ] as const;
 

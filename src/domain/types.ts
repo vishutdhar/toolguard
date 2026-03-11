@@ -55,6 +55,7 @@ export interface Tool {
   resource: string;
   description: string | null;
   riskLevel: RiskLevel;
+  estimatedCostUsd: number;
   createdAt: Date;
   updatedAt: Date;
 }

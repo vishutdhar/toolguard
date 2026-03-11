@@ -146,6 +146,7 @@ export class MemoryDataStore implements DataStore {
       resource: input.resource,
       description: input.description ?? null,
       riskLevel: input.riskLevel,
+      estimatedCostUsd: input.estimatedCostUsd ?? 0,
       createdAt: new Date(),
       updatedAt: new Date(),
     };
@@ -242,10 +243,17 @@ export class MemoryDataStore implements DataStore {
     return approval ? { ...approval, reasonCodes: [...approval.reasonCodes] } : null;
   }
 
-  async updateApprovalRequest(id: string, input: UpdateApprovalRequestInput): Promise<ApprovalRequest> {
+  async updateApprovalRequest(id: string, input: UpdateApprovalRequestInput, expectedStatus?: ApprovalRequest["status"]): Promise<ApprovalRequest> {
     const approval = this.approvals.get(id);
     if (!approval) {
       throw notFound("Approval request", { id });
+    }
+
+    if (expectedStatus !== undefined && approval.status !== expectedStatus) {
+      throw Object.assign(
+        new Error(`Approval status has changed (expected ${expectedStatus}, got ${approval.status})`),
+        { statusCode: 409, code: "APPROVAL_STATUS_CHANGED" },
+      );
     }
 
     approval.status = input.status;

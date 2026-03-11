@@ -40,6 +40,7 @@ export async function seedDemoData(store: DataStore, authService: AuthService): 
         resource: tool.resource,
         description: tool.description,
         riskLevel: tool.riskLevel,
+        estimatedCostUsd: tool.estimatedCostUsd,
       }),
     ),
   );

@@ -82,15 +82,12 @@ export class ApprovalService {
     resolvedBy: string,
     actorType = "api_key",
   ): Promise<ApprovalRequest> {
-    const approval = await this.get(approvalId);
-    assertApp(approval.status === "pending", "Only pending approvals can be resolved", 409, "APPROVAL_NOT_PENDING");
-
     const resolvedAt = this.now();
     const updated = await this.store.updateApprovalRequest(approvalId, {
       status,
       resolvedBy,
       resolvedAt,
-    });
+    }, "pending");
 
     await this.auditService.log({
       organizationId: updated.organizationId,

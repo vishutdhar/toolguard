@@ -49,6 +49,7 @@ export interface CreateToolInput {
   resource: string;
   description?: string | null;
   riskLevel: "low" | "medium" | "high";
+  estimatedCostUsd?: number;
 }
 
 export interface CreatePolicyInput {
@@ -145,7 +146,7 @@ export interface DataStore {
 
   createApprovalRequest(input: CreateApprovalRequestInput): Promise<ApprovalRequest>;
   getApprovalRequest(id: string): Promise<ApprovalRequest | null>;
-  updateApprovalRequest(id: string, input: UpdateApprovalRequestInput): Promise<ApprovalRequest>;
+  updateApprovalRequest(id: string, input: UpdateApprovalRequestInput, expectedStatus?: ApprovalRequest["status"]): Promise<ApprovalRequest>;
 
   createAuditEvent(input: CreateAuditEventInput): Promise<AuditEvent>;
   listAuditEventsForRun(runId: string): Promise<AuditEvent[]>;

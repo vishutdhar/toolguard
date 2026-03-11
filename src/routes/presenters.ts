@@ -69,6 +69,7 @@ export function presentTool(tool: Tool): Record<string, unknown> {
     resource: tool.resource,
     description: tool.description,
     riskLevel: tool.riskLevel,
+    estimatedCostUsd: tool.estimatedCostUsd,
     createdAt: tool.createdAt.toISOString(),
     updatedAt: tool.updatedAt.toISOString(),
   };

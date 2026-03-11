@@ -65,7 +65,6 @@ const toolInputSchema = z.object({
   action: z.string().min(1).optional(),
   resource: z.string().min(1).optional(),
   riskLevel: riskLevelSchema.optional(),
-  estimatedCostUsd: z.number().nonnegative().optional().default(0),
 });
 
 const decisionResponseSchema = z.object({
@@ -358,12 +357,18 @@ export async function registerRoutes(
       requireOrgAccess(auth, request.body.orgId);
       const agent = await services.store.getAgent(request.body.agentId);
       assertApp(agent && agent.organizationId === auth.organization.id, "Agent not found in organization", 404, "AGENT_NOT_FOUND");
+      assertApp(
+        request.body.environment === agent.environment,
+        `Session environment must match agent environment ("${agent.environment}")`,
+        409,
+        "ENVIRONMENT_MISMATCH",
+      );
       const session = await services.store.createSession({
         organizationId: auth.organization.id,
         agentId: request.body.agentId,
         userId: request.body.userId ?? null,
         servicePrincipal: request.body.servicePrincipal ?? null,
-        environment: request.body.environment,
+        environment: agent.environment,
         scopes: request.body.scopes,
         metadata: request.body.metadata,
       });
@@ -386,6 +391,7 @@ export async function registerRoutes(
           resource: z.string().min(1),
           description: z.string().optional(),
           riskLevel: riskLevelSchema,
+          estimatedCostUsd: z.number().nonnegative().optional().default(0),
         }),
         response: {
           201: z.record(z.string(), z.unknown()),
@@ -402,6 +408,7 @@ export async function registerRoutes(
         resource: request.body.resource,
         description: request.body.description ?? null,
         riskLevel: request.body.riskLevel,
+        estimatedCostUsd: request.body.estimatedCostUsd,
       });
 
       return reply.status(201).send(presentTool(tool));
@@ -592,7 +599,7 @@ export async function registerRoutes(
             action: resolved.tool.action,
             resource: resolved.tool.resource,
             riskLevel: resolved.tool.riskLevel,
-            estimatedCostUsd: request.body.tool.estimatedCostUsd ?? 0,
+            estimatedCostUsd: resolved.tool.estimatedCostUsd,
           },
           context: resolved.context,
           payloadSummary: request.body.payloadSummary,
@@ -602,7 +609,7 @@ export async function registerRoutes(
       const usage = await services.usageService.checkUsage({
         organizationId: auth.organization.id,
         toolName: resolved.tool.name,
-        estimatedCostUsd: request.body.tool.estimatedCostUsd ?? 0,
+        estimatedCostUsd: resolved.tool.estimatedCostUsd,
         tokenCount: 0,
         reserve: false,
       });

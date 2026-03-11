@@ -94,16 +94,17 @@ model Session {
 }
 
 model Tool {
-  id             String        @id @default(cuid())
-  organizationId String
-  name           String
-  action         String
-  resource       String
-  description    String?
-  riskLevel      RiskLevel
-  createdAt      DateTime      @default(now())
-  updatedAt      DateTime      @updatedAt
-  organization   Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  id               String        @id @default(cuid())
+  organizationId   String
+  name             String
+  action           String
+  resource         String
+  description      String?
+  riskLevel        RiskLevel
+  estimatedCostUsd Decimal       @default(0) @db.Decimal(12, 2)
+  createdAt        DateTime      @default(now())
+  updatedAt        DateTime      @updatedAt
+  organization     Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
 
   @@index([organizationId])
   @@unique([organizationId, name])
