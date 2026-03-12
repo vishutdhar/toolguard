@@ -143,15 +143,18 @@ export class ToolGuard {
   // --- Sessions ---
 
   async createSession(input: CreateSessionInput): Promise<Session> {
-    return this.request<Session>("POST", "/v1/sessions", {
+    const body: Record<string, unknown> = {
       orgId: this.orgId(input.orgId),
       agentId: this.agentId(input.agentId),
       userId: input.userId ?? null,
       servicePrincipal: input.servicePrincipal ?? null,
-      environment: input.environment ?? "production",
       scopes: input.scopes ?? [],
       metadata: input.metadata ?? {},
-    });
+    };
+    if (input.environment !== undefined) {
+      body.environment = input.environment;
+    }
+    return this.request<Session>("POST", "/v1/sessions", body);
   }
 
   // --- Tools ---
@@ -164,6 +167,7 @@ export class ToolGuard {
       resource: input.resource,
       description: input.description,
       riskLevel: input.riskLevel,
+      estimatedCostUsd: input.estimatedCostUsd ?? 0,
     });
   }
 

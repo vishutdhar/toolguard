@@ -1,4 +1,5 @@
 import { PrismaClient, Prisma } from "@prisma/client";
+import { AppError } from "../../lib/errors";
 import { toJsonObject, type JsonObject } from "../../lib/json";
 import type {
   Agent,
@@ -401,9 +402,10 @@ export class PrismaDataStore implements DataStore {
         data: input,
       });
       if (result.count === 0) {
-        throw Object.assign(
-          new Error(`Approval status has changed (expected ${expectedStatus})`),
-          { statusCode: 409, code: "APPROVAL_STATUS_CHANGED" },
+        throw new AppError(
+          `Approval status has changed (expected ${expectedStatus})`,
+          409,
+          "APPROVAL_STATUS_CHANGED",
         );
       }
       // Fetch the updated record to return

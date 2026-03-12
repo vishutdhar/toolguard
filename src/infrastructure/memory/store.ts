@@ -1,4 +1,4 @@
-import { notFound } from "../../lib/errors";
+import { AppError, notFound } from "../../lib/errors";
 import { generateId } from "../../lib/id";
 import { toJsonObject } from "../../lib/json";
 import type {
@@ -250,9 +250,10 @@ export class MemoryDataStore implements DataStore {
     }
 
     if (expectedStatus !== undefined && approval.status !== expectedStatus) {
-      throw Object.assign(
-        new Error(`Approval status has changed (expected ${expectedStatus}, got ${approval.status})`),
-        { statusCode: 409, code: "APPROVAL_STATUS_CHANGED" },
+      throw new AppError(
+        `Approval status has changed (expected ${expectedStatus}, got ${approval.status})`,
+        409,
+        "APPROVAL_STATUS_CHANGED",
       );
     }
 

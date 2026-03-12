@@ -343,7 +343,7 @@ export async function registerRoutes(
           agentId: z.string().min(1),
           userId: z.string().optional().nullable(),
           servicePrincipal: z.string().optional().nullable(),
-          environment: z.string().min(1),
+          environment: z.string().min(1).optional(),
           scopes: stringArraySchema,
           metadata: metadataSchema,
         }),
@@ -357,12 +357,14 @@ export async function registerRoutes(
       requireOrgAccess(auth, request.body.orgId);
       const agent = await services.store.getAgent(request.body.agentId);
       assertApp(agent && agent.organizationId === auth.organization.id, "Agent not found in organization", 404, "AGENT_NOT_FOUND");
-      assertApp(
-        request.body.environment === agent.environment,
-        `Session environment must match agent environment ("${agent.environment}")`,
-        409,
-        "ENVIRONMENT_MISMATCH",
-      );
+      if (request.body.environment !== undefined) {
+        assertApp(
+          request.body.environment === agent.environment,
+          `Session environment must match agent environment ("${agent.environment}")`,
+          409,
+          "ENVIRONMENT_MISMATCH",
+        );
+      }
       const session = await services.store.createSession({
         organizationId: auth.organization.id,
         agentId: request.body.agentId,

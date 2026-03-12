@@ -37,6 +37,7 @@ export interface CreateToolInput {
   resource: string;
   description?: string;
   riskLevel: RiskLevel;
+  estimatedCostUsd?: number;
 }
 
 export interface PolicyRuleInput {
@@ -176,6 +177,7 @@ export interface Tool {
   resource: string;
   description: string | null;
   riskLevel: RiskLevel;
+  estimatedCostUsd: number;
   createdAt: string;
   updatedAt: string;
 }
