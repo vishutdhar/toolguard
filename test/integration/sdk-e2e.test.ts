@@ -332,4 +332,42 @@ describe("SDK end-to-end integration", () => {
     expect(evalResult.decision).toBe("allow");
     expect(evalResult.limits).toBeDefined();
   });
+
+  it("SDK createTool sends estimatedCostUsd and returns it", async () => {
+    const tool = await tg.createTool({
+      name: "billing.sdk_test",
+      action: "charge",
+      resource: "payment",
+      riskLevel: "high",
+      estimatedCostUsd: 4.25,
+    });
+
+    expect(tool.estimatedCostUsd).toBe(4.25);
+
+    const allTools = await tg.listTools();
+    const found = allTools.find((t) => t.name === "billing.sdk_test");
+    expect(found?.estimatedCostUsd).toBe(4.25);
+  });
+
+  it("SDK createSession inherits agent environment when omitted", async () => {
+    const devAgent = await tg.createAgent({
+      name: "sdk-dev-agent",
+      environment: "development",
+      defaultScopes: [],
+    });
+
+    const devTg = new ToolGuard({
+      apiKey: seed.rawApiKey,
+      baseUrl,
+      orgId: seed.organizationId,
+      agentId: devAgent.id,
+    });
+
+    // Omit environment entirely — SDK should not inject a default
+    const session = await devTg.createSession({
+      scopes: [],
+    });
+
+    expect(session.environment).toBe("development");
+  });
 });

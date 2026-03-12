@@ -601,24 +601,27 @@ describe("ToolGuard API integration", () => {
 
     const approvalId = authResponse.json().approvalId as string;
 
-    // First resolve succeeds
-    const first = await app.inject({
-      method: "POST",
-      url: `/v1/approvals/${approvalId}/resolve`,
-      headers,
-      payload: { status: "approved" },
-    });
-    expect(first.statusCode).toBe(200);
+    // Fire both resolves concurrently — one wins, one gets 409
+    const [a, b] = await Promise.all([
+      app.inject({
+        method: "POST",
+        url: `/v1/approvals/${approvalId}/resolve`,
+        headers,
+        payload: { status: "approved" },
+      }),
+      app.inject({
+        method: "POST",
+        url: `/v1/approvals/${approvalId}/resolve`,
+        headers,
+        payload: { status: "rejected" },
+      }),
+    ]);
 
-    // Second resolve gets 409, NOT 500
-    const second = await app.inject({
-      method: "POST",
-      url: `/v1/approvals/${approvalId}/resolve`,
-      headers,
-      payload: { status: "rejected" },
-    });
-    expect(second.statusCode).toBe(409);
-    expect(second.json().error).toBe("APPROVAL_STATUS_CHANGED");
+    const statuses = [a.statusCode, b.statusCode].sort();
+    expect(statuses).toEqual([200, 409]);
+
+    const loser = a.statusCode === 409 ? a : b;
+    expect(loser.json().error).toBe("APPROVAL_STATUS_CHANGED");
   });
 
   it("inherits agent environment when session omits the field", async () => {
