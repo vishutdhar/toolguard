@@ -552,4 +552,138 @@ describe("ToolGuard API integration", () => {
     expect(response.statusCode).toBe(409);
     expect(response.json().error).toBe("RUN_SESSION_MISMATCH");
   });
+
+  it("persists estimatedCostUsd on tool creation and returns it", async () => {
+    const createResponse = await app.inject({
+      method: "POST",
+      url: "/v1/tools",
+      headers,
+      payload: {
+        orgId: seed.organizationId,
+        name: "billing.charge",
+        action: "charge",
+        resource: "payment",
+        riskLevel: "high",
+        estimatedCostUsd: 9.5,
+      },
+    });
+
+    expect(createResponse.statusCode).toBe(201);
+    expect(createResponse.json().estimatedCostUsd).toBe(9.5);
+
+    const listResponse = await app.inject({
+      method: "GET",
+      url: "/v1/tools",
+      headers,
+    });
+
+    const tools = listResponse.json().items as Array<{ name: string; estimatedCostUsd: number }>;
+    const created = tools.find((t) => t.name === "billing.charge");
+    expect(created?.estimatedCostUsd).toBe(9.5);
+  });
+
+  it("returns 409 on concurrent approval resolution (not 500)", async () => {
+    const session = await createSession();
+    const authResponse = await app.inject({
+      method: "POST",
+      url: "/v1/tool/authorize",
+      headers,
+      payload: {
+        orgId: seed.organizationId,
+        agentId: seed.agentId,
+        sessionId: session.id,
+        tool: { name: seed.toolNames.gmail },
+        context: { environment: "production", justification: "Test" },
+        payloadSummary: { recipientDomain: "gmail.com" },
+        tokenCount: 5,
+      },
+    });
+
+    const approvalId = authResponse.json().approvalId as string;
+
+    // First resolve succeeds
+    const first = await app.inject({
+      method: "POST",
+      url: `/v1/approvals/${approvalId}/resolve`,
+      headers,
+      payload: { status: "approved" },
+    });
+    expect(first.statusCode).toBe(200);
+
+    // Second resolve gets 409, NOT 500
+    const second = await app.inject({
+      method: "POST",
+      url: `/v1/approvals/${approvalId}/resolve`,
+      headers,
+      payload: { status: "rejected" },
+    });
+    expect(second.statusCode).toBe(409);
+    expect(second.json().error).toBe("APPROVAL_STATUS_CHANGED");
+  });
+
+  it("inherits agent environment when session omits the field", async () => {
+    // Create a development agent
+    const devAgentResponse = await app.inject({
+      method: "POST",
+      url: "/v1/agents",
+      headers,
+      payload: {
+        orgId: seed.organizationId,
+        name: "dev-agent",
+        environment: "development",
+        defaultScopes: [],
+      },
+    });
+    expect(devAgentResponse.statusCode).toBe(201);
+    const devAgent = devAgentResponse.json();
+
+    // Create session WITHOUT environment — should inherit "development"
+    const sessionResponse = await app.inject({
+      method: "POST",
+      url: "/v1/sessions",
+      headers,
+      payload: {
+        orgId: seed.organizationId,
+        agentId: devAgent.id,
+        scopes: [],
+        metadata: {},
+      },
+    });
+
+    expect(sessionResponse.statusCode).toBe(201);
+    expect(sessionResponse.json().environment).toBe("development");
+  });
+
+  it("rejects session with mismatched environment", async () => {
+    // Create a development agent
+    const devAgentResponse = await app.inject({
+      method: "POST",
+      url: "/v1/agents",
+      headers,
+      payload: {
+        orgId: seed.organizationId,
+        name: "dev-agent-2",
+        environment: "development",
+        defaultScopes: [],
+      },
+    });
+    const devAgent = devAgentResponse.json();
+
+    // Try to create a "production" session for a "development" agent
+    const sessionResponse = await app.inject({
+      method: "POST",
+      url: "/v1/sessions",
+      headers,
+      payload: {
+        orgId: seed.organizationId,
+        agentId: devAgent.id,
+        environment: "production",
+        scopes: [],
+        metadata: {},
+      },
+    });
+
+    expect(sessionResponse.statusCode).toBe(409);
+    expect(sessionResponse.json().error).toBe("ENVIRONMENT_MISMATCH");
+  });
 });
