@@ -65,6 +65,13 @@ jobs:
           docker compose logs api worker postgres redis
           exit 1
 
+      - name: Run store contract tests against Postgres
+        env:
+          TEST_DATABASE_URL: postgresql://toolguard:toolguard@localhost:5432/toolguard_test?schema=public
+        run: |
+          docker compose exec -T postgres psql -U toolguard -c "CREATE DATABASE toolguard_test;" || true
+          npx vitest run test/integration/store-contract.test.ts
+
       - name: Run Prisma seed
         run: npm run seed
 
