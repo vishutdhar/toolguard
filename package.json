@@ -24,13 +24,23 @@
     "prepare": "prisma generate"
   },
   "keywords": [
-    "fastify",
-    "prisma",
-    "redis",
+    "ai-agent",
+    "tool-authorization",
+    "mcp",
     "policy-engine",
+    "human-in-the-loop",
+    "audit-log",
     "toolguard"
   ],
-  "author": "",
+  "author": "Vishut Dhar",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/vishutdhar/toolguard.git"
+  },
+  "homepage": "https://github.com/vishutdhar/toolguard",
+  "bugs": {
+    "url": "https://github.com/vishutdhar/toolguard/issues"
+  },
   "license": "MIT",
   "type": "commonjs",
   "workspaces": [
