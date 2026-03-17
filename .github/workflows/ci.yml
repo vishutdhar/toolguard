@@ -28,14 +28,14 @@ jobs:
       - name: Typecheck server
         run: npm run typecheck
 
+      - name: Build SDK packages
+        run: npm run build:packages
+
       - name: Typecheck SDK packages
         run: |
           cd packages/client && npx tsc --noEmit
           cd ../openai && npx tsc --noEmit
           cd ../mcp-proxy && npx tsc --noEmit
-
-      - name: Build SDK packages
-        run: npm run build:packages
 
       - name: Test SDK packages
         run: |
@@ -83,8 +83,8 @@ jobs:
 
       - name: Show service logs on failure
         if: failure()
-        run: docker compose logs api worker postgres redis
+        run: docker compose logs api worker postgres redis || true
 
       - name: Stop Docker stack
         if: always()
-        run: docker compose down --volumes --remove-orphans
+        run: docker compose down --volumes --remove-orphans || true
