@@ -40,6 +40,7 @@ model Organization {
   auditEvents   AuditEvent[]
   runs          Run[]
   usageCounters UsageCounter[]
+  webhookConfigs WebhookConfig[]
 }
 
 model ApiKey {
@@ -157,6 +158,7 @@ model ApprovalRequest {
   run                Run?            @relation(fields: [runId], references: [id], onDelete: SetNull)
 
   @@index([organizationId])
+  @@index([organizationId, status])
   @@index([sessionId])
   @@index([runId])
 }
@@ -213,4 +215,16 @@ model UsageCounter {
 
   @@index([organizationId])
   @@index([windowKey])
+}
+
+model WebhookConfig {
+  id             String        @id @default(cuid())
+  organizationId String
+  url            String
+  eventTypes     Json
+  secret         String?
+  createdAt      DateTime      @default(now())
+  organization   Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId])
 }

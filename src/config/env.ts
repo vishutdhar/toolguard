@@ -20,6 +20,7 @@ const envSchema = z.object({
   ORG_DAILY_MAX_TOKENS: z.coerce.number().int().positive().default(200000),
   PER_TOOL_DAILY_MAX_ACTIONS: z.coerce.number().int().positive().default(200),
   BULLMQ_ENABLED: z.coerce.boolean().default(true),
+  CORS_ALLOWED_ORIGINS: z.string().default(""),
 });
 
 export type AppEnv = z.infer<typeof envSchema>;

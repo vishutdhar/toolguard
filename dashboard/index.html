@@ -1,0 +1,723 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ToolGuard — Approval Dashboard</title>
+  <meta name="theme-color" content="#060b18">
+
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Syne:wght@500;600;700&family=Outfit:wght@300;400;500;600&family=Fira+Code:wght@400&display=swap" rel="stylesheet">
+
+  <style>
+    :root {
+      --bg-deep: #040810;
+      --bg-primary: #060b18;
+      --bg-elevated: #0c1424;
+      --bg-card: #0e1828;
+      --bg-card-hover: #121e32;
+
+      --accent-cyan: #00e5ff;
+      --accent-cyan-dim: #00e5ff33;
+      --accent-green: #00ff6a;
+      --accent-green-dim: #00ff6a22;
+      --accent-amber: #ffb800;
+      --accent-amber-dim: #ffb80022;
+      --accent-red: #ff3d57;
+      --accent-red-dim: #ff3d5722;
+
+      --text-primary: #e8ecf1;
+      --text-secondary: #8a95a8;
+      --text-muted: #4a5568;
+      --text-code: #c8d6e5;
+
+      --border: #1a2438;
+      --border-bright: #243044;
+
+      --font-display: 'Syne', sans-serif;
+      --font-body: 'Outfit', sans-serif;
+      --font-code: 'Fira Code', monospace;
+
+      --radius: 12px;
+      --radius-sm: 8px;
+    }
+
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    html { -webkit-font-smoothing: antialiased; }
+    body {
+      font-family: var(--font-body);
+      background: var(--bg-deep);
+      color: var(--text-primary);
+      line-height: 1.6;
+      min-height: 100vh;
+    }
+    button { cursor: pointer; font-family: inherit; }
+    ::selection { background: var(--accent-cyan); color: var(--bg-deep); }
+
+    /* Layout */
+    .app { max-width: 960px; margin: 0 auto; padding: 24px 20px; }
+    .header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 32px;
+      flex-wrap: wrap;
+      gap: 16px;
+    }
+    .header h1 {
+      font-family: var(--font-display);
+      font-size: 1.5rem;
+      font-weight: 700;
+      color: var(--accent-cyan);
+    }
+    .header h1 span { color: var(--text-primary); }
+
+    /* Setup form */
+    .setup {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 32px;
+      max-width: 480px;
+      margin: 80px auto;
+    }
+    .setup h2 {
+      font-family: var(--font-display);
+      font-size: 1.25rem;
+      margin-bottom: 8px;
+    }
+    .setup p { color: var(--text-secondary); font-size: 0.9rem; margin-bottom: 20px; }
+    .setup label {
+      display: block;
+      font-size: 0.85rem;
+      color: var(--text-secondary);
+      margin-bottom: 6px;
+    }
+    .input {
+      width: 100%;
+      padding: 10px 14px;
+      background: var(--bg-elevated);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      color: var(--text-primary);
+      font-family: var(--font-code);
+      font-size: 0.85rem;
+      outline: none;
+      transition: border-color 0.2s;
+    }
+    .input:focus { border-color: var(--accent-cyan); }
+    .input + .input { margin-top: 12px; }
+
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 8px 16px;
+      border-radius: var(--radius-sm);
+      border: 1px solid transparent;
+      font-size: 0.85rem;
+      font-weight: 500;
+      transition: all 0.15s;
+    }
+    .btn-primary {
+      background: var(--accent-cyan);
+      color: var(--bg-deep);
+      width: 100%;
+      justify-content: center;
+      margin-top: 20px;
+      padding: 12px;
+      font-weight: 600;
+    }
+    .btn-primary:hover { opacity: 0.9; }
+    .btn-approve {
+      background: var(--accent-green-dim);
+      color: var(--accent-green);
+      border-color: var(--accent-green);
+    }
+    .btn-approve:hover { background: var(--accent-green); color: var(--bg-deep); }
+    .btn-reject {
+      background: var(--accent-red-dim);
+      color: var(--accent-red);
+      border-color: var(--accent-red);
+    }
+    .btn-reject:hover { background: var(--accent-red); color: var(--bg-deep); }
+    .btn-disconnect {
+      background: transparent;
+      color: var(--text-secondary);
+      border: 1px solid var(--border);
+      font-size: 0.8rem;
+    }
+    .btn-disconnect:hover { border-color: var(--accent-red); color: var(--accent-red); }
+
+    /* Tabs */
+    .tabs {
+      display: flex;
+      gap: 4px;
+      margin-bottom: 24px;
+      border-bottom: 1px solid var(--border);
+      padding-bottom: 0;
+    }
+    .tab {
+      padding: 10px 18px;
+      background: transparent;
+      border: none;
+      color: var(--text-secondary);
+      font-size: 0.9rem;
+      font-weight: 500;
+      border-bottom: 2px solid transparent;
+      margin-bottom: -1px;
+      transition: all 0.15s;
+    }
+    .tab:hover { color: var(--text-primary); }
+    .tab.active {
+      color: var(--accent-cyan);
+      border-bottom-color: var(--accent-cyan);
+    }
+    .tab .count {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-width: 20px;
+      height: 20px;
+      padding: 0 6px;
+      border-radius: 10px;
+      font-size: 0.75rem;
+      margin-left: 6px;
+    }
+    .tab.active .count {
+      background: var(--accent-cyan-dim);
+      color: var(--accent-cyan);
+    }
+    .tab:not(.active) .count {
+      background: var(--bg-elevated);
+      color: var(--text-muted);
+    }
+
+    /* Cards */
+    .card {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 16px 20px;
+      margin-bottom: 12px;
+      transition: border-color 0.15s;
+    }
+    .card:hover { border-color: var(--border-bright); }
+    .card-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      margin-bottom: 10px;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+    .card-tool {
+      font-family: var(--font-code);
+      font-size: 0.9rem;
+      color: var(--accent-cyan);
+    }
+    .card-meta {
+      display: flex;
+      gap: 16px;
+      font-size: 0.8rem;
+      color: var(--text-secondary);
+      flex-wrap: wrap;
+    }
+    .card-actions {
+      display: flex;
+      gap: 8px;
+      margin-top: 12px;
+    }
+
+    /* Status badges */
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      padding: 3px 10px;
+      border-radius: 20px;
+      font-size: 0.75rem;
+      font-weight: 500;
+    }
+    .badge-pending { background: var(--accent-amber-dim); color: var(--accent-amber); }
+    .badge-approved { background: var(--accent-green-dim); color: var(--accent-green); }
+    .badge-rejected { background: var(--accent-red-dim); color: var(--accent-red); }
+    .badge-expired { background: var(--bg-elevated); color: var(--text-muted); }
+
+    /* Activity feed */
+    .feed-item {
+      display: flex;
+      gap: 12px;
+      padding: 12px 0;
+      border-bottom: 1px solid var(--border);
+      font-size: 0.85rem;
+    }
+    .feed-item:last-child { border-bottom: none; }
+    .feed-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      margin-top: 6px;
+      flex-shrink: 0;
+    }
+    .feed-dot.approval { background: var(--accent-amber); }
+    .feed-dot.authorization { background: var(--accent-cyan); }
+    .feed-dot.run { background: var(--accent-green); }
+    .feed-dot.default { background: var(--text-muted); }
+    .feed-time {
+      color: var(--text-muted);
+      font-family: var(--font-code);
+      font-size: 0.75rem;
+      flex-shrink: 0;
+      width: 72px;
+    }
+    .feed-text { color: var(--text-secondary); }
+    .feed-text strong { color: var(--text-primary); font-weight: 500; }
+
+    /* Empty state */
+    .empty {
+      text-align: center;
+      padding: 48px 20px;
+      color: var(--text-muted);
+    }
+    .empty-icon { font-size: 2rem; margin-bottom: 12px; }
+
+    /* Status indicator */
+    .status-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      display: inline-block;
+      margin-right: 6px;
+    }
+    .status-dot.connected { background: var(--accent-green); }
+    .status-dot.disconnected { background: var(--accent-red); }
+
+    .error-banner {
+      background: var(--accent-red-dim);
+      border: 1px solid var(--accent-red);
+      border-radius: var(--radius-sm);
+      padding: 10px 16px;
+      margin-bottom: 16px;
+      color: var(--accent-red);
+      font-size: 0.85rem;
+      display: none;
+    }
+
+    .hidden { display: none !important; }
+
+    @media (max-width: 600px) {
+      .card-header { flex-direction: column; }
+      .card-meta { flex-direction: column; gap: 4px; }
+    }
+  </style>
+</head>
+<body>
+
+<div class="app">
+  <!-- Setup Screen -->
+  <div id="setup" class="setup">
+    <h2>Connect to ToolGuard</h2>
+    <p>Enter your API URL and key to view and manage approval requests.</p>
+    <label for="apiUrl">API Base URL</label>
+    <input id="apiUrl" class="input" type="url" placeholder="https://your-api.example.com" value="http://localhost:3000">
+    <label for="apiKey" style="margin-top: 12px;">API Key</label>
+    <input id="apiKey" class="input" type="password" placeholder="tg_...">
+    <button class="btn btn-primary" onclick="connect()">Connect</button>
+  </div>
+
+  <!-- Dashboard (hidden until connected) -->
+  <div id="dashboard" class="hidden">
+    <div class="header">
+      <h1>Tool<span>Guard</span></h1>
+      <div style="display: flex; align-items: center; gap: 12px;">
+        <span style="font-size: 0.8rem; color: var(--text-secondary);">
+          <span class="status-dot connected"></span> Connected
+        </span>
+        <button class="btn btn-disconnect" onclick="disconnect()">Disconnect</button>
+      </div>
+    </div>
+
+    <div id="errorBanner" class="error-banner"></div>
+
+    <div class="tabs">
+      <button class="tab active" data-tab="pending" onclick="switchTab('pending')">
+        Pending <span class="count" id="pendingCount">0</span>
+      </button>
+      <button class="tab" data-tab="resolved" onclick="switchTab('resolved')">
+        Resolved <span class="count" id="resolvedCount">0</span>
+      </button>
+      <button class="tab" data-tab="activity" onclick="switchTab('activity')">
+        Activity
+      </button>
+    </div>
+
+    <!-- Pending Approvals -->
+    <div id="tab-pending"></div>
+
+    <!-- Resolved Approvals -->
+    <div id="tab-resolved" class="hidden"></div>
+
+    <!-- Activity Feed -->
+    <div id="tab-activity" class="hidden"></div>
+  </div>
+</div>
+
+<script>
+  let apiUrl = '';
+  let apiKey = '';
+  let currentTab = 'pending';
+  let pollTimer = null;
+
+  // Pagination cursors for load-more
+  let pendingCursor = null;
+  let resolvedCursors = { approved: null, rejected: null, expired: null };
+  let activityCursor = null;
+
+  // --- Connection ---
+  function connect() {
+    apiUrl = document.getElementById('apiUrl').value.replace(/\/+$/, '');
+    apiKey = document.getElementById('apiKey').value.trim();
+    if (!apiUrl || !apiKey) return;
+
+    sessionStorage.setItem('tg_url', apiUrl);
+    sessionStorage.setItem('tg_key', apiKey);
+
+    document.getElementById('setup').classList.add('hidden');
+    document.getElementById('dashboard').classList.remove('hidden');
+    refresh();
+    startPolling();
+  }
+
+  function disconnect() {
+    sessionStorage.removeItem('tg_url');
+    sessionStorage.removeItem('tg_key');
+    stopPolling();
+    document.getElementById('dashboard').classList.add('hidden');
+    document.getElementById('setup').classList.remove('hidden');
+    apiUrl = '';
+    apiKey = '';
+  }
+
+  // Auto-connect from session
+  (function autoConnect() {
+    const savedUrl = sessionStorage.getItem('tg_url');
+    const savedKey = sessionStorage.getItem('tg_key');
+    if (savedUrl && savedKey) {
+      document.getElementById('apiUrl').value = savedUrl;
+      document.getElementById('apiKey').value = savedKey;
+      connect();
+    }
+  })();
+
+  // --- API ---
+  async function api(path) {
+    const res = await fetch(`${apiUrl}${path}`, {
+      headers: { Authorization: `Bearer ${apiKey}` },
+    });
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      throw new Error(body.message || `HTTP ${res.status}`);
+    }
+    return res.json();
+  }
+
+  async function apiPost(path, body) {
+    const res = await fetch(`${apiUrl}${path}`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(body),
+    });
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      throw new Error(data.message || `HTTP ${res.status}`);
+    }
+    return res.json();
+  }
+
+  // --- Tabs ---
+  function switchTab(tab) {
+    currentTab = tab;
+    document.querySelectorAll('.tab').forEach(t => t.classList.toggle('active', t.dataset.tab === tab));
+    document.querySelectorAll('[id^="tab-"]').forEach(el => el.classList.toggle('hidden', el.id !== `tab-${tab}`));
+  }
+
+  // --- Rendering ---
+  function timeAgo(iso) {
+    const diff = Date.now() - new Date(iso).getTime();
+    const mins = Math.floor(diff / 60000);
+    if (mins < 1) return 'just now';
+    if (mins < 60) return `${mins}m ago`;
+    const hrs = Math.floor(mins / 60);
+    if (hrs < 24) return `${hrs}h ago`;
+    return `${Math.floor(hrs / 24)}d ago`;
+  }
+
+  function badgeHtml(status) {
+    return `<span class="badge badge-${status}">${status}</span>`;
+  }
+
+  function renderApprovalCard(a, showActions) {
+    const reasons = (a.reasonCodes || []).join(', ') || 'none';
+    const actions = showActions
+      ? `<div class="card-actions">
+           <button class="btn btn-approve" onclick="resolveApproval('${a.id}', 'approved')">Approve</button>
+           <button class="btn btn-reject" onclick="resolveApproval('${a.id}', 'rejected')">Reject</button>
+         </div>`
+      : '';
+
+    return `<div class="card" id="card-${a.id}">
+      <div class="card-header">
+        <span class="card-tool">${esc(a.toolName)}</span>
+        ${badgeHtml(a.status)}
+      </div>
+      <div class="card-meta">
+        <span>Action: <strong>${esc(a.action)}</strong></span>
+        <span>Resource: <strong>${esc(a.resource)}</strong></span>
+        <span>Reasons: ${esc(reasons)}</span>
+        <span>${timeAgo(a.createdAt)}</span>
+      </div>
+      ${a.justification ? `<div style="margin-top:8px;font-size:0.85rem;color:var(--text-secondary);">"${esc(a.justification)}"</div>` : ''}
+      ${a.resolvedBy ? `<div style="margin-top:8px;font-size:0.8rem;color:var(--text-muted);">Resolved by ${esc(a.resolvedBy)}</div>` : ''}
+      ${actions}
+    </div>`;
+  }
+
+  function renderLoadMore(onclick) {
+    return `<div style="text-align:center;padding:16px;">
+      <button class="btn btn-disconnect" onclick="${onclick}" style="border-color:var(--accent-cyan);color:var(--accent-cyan);">Load more</button>
+    </div>`;
+  }
+
+  function renderFeedItem(e) {
+    const dotClass = e.eventType.startsWith('approval') ? 'approval'
+      : e.eventType.startsWith('tool') ? 'authorization'
+      : e.eventType.startsWith('run') ? 'run'
+      : 'default';
+
+    const summary = feedSummary(e);
+    return `<div class="feed-item">
+      <span class="feed-dot ${dotClass}"></span>
+      <span class="feed-time">${timeAgo(e.createdAt)}</span>
+      <span class="feed-text">${summary}</span>
+    </div>`;
+  }
+
+  function feedSummary(e) {
+    const p = e.payload || {};
+    switch (e.eventType) {
+      case 'approval.requested':
+        return `Approval requested for <strong>${esc(p.toolName || '?')}</strong>`;
+      case 'approval.resolved':
+        return `Approval <strong>${esc(p.status || 'resolved')}</strong> by ${esc(e.actorId || 'unknown')}`;
+      case 'approval.expired':
+        return `Approval <strong>expired</strong>`;
+      case 'tool.authorization.requested':
+        return `Authorization requested: <strong>${esc(p.toolName || '?')}</strong>`;
+      case 'tool.authorized':
+        return `Tool <strong>${esc(p.toolName || '?')}</strong> authorized (${esc(p.decision || '?')})`;
+      case 'policy.evaluated':
+        return `Policy evaluated: <strong>${esc(p.decision || '?')}</strong>`;
+      case 'run.started':
+        return `Run started`;
+      case 'run.completed':
+        return `Run <strong>completed</strong>`;
+      case 'run.failed':
+        return `Run <strong>failed</strong>`;
+      default:
+        return `<strong>${esc(e.eventType)}</strong>`;
+    }
+  }
+
+  function esc(s) {
+    if (typeof s !== 'string') return String(s);
+    const el = document.createElement('span');
+    el.textContent = s;
+    return el.innerHTML;
+  }
+
+  function emptyState(msg) {
+    return `<div class="empty"><div class="empty-icon">&#9711;</div><div>${msg}</div></div>`;
+  }
+
+  function countLabel(count, hasMore) {
+    return hasMore ? `${count}+` : String(count);
+  }
+
+  // --- Data fetching ---
+  async function fetchAllPages(statusFilter, limit) {
+    const result = await api(`/v1/approvals?status=${statusFilter}&limit=${limit}`);
+    return result;
+  }
+
+  async function refresh() {
+    try {
+      hideError();
+      const PAGE = 50;
+      const [pending, approved, rejected, expired, events] = await Promise.all([
+        fetchAllPages('pending', PAGE),
+        fetchAllPages('approved', PAGE),
+        fetchAllPages('rejected', PAGE),
+        fetchAllPages('expired', PAGE),
+        api(`/v1/audit/events?limit=${PAGE}`),
+      ]);
+
+      // Store cursors for load-more
+      pendingCursor = pending.cursor;
+      resolvedCursors = { approved: approved.cursor, rejected: rejected.cursor, expired: expired.cursor };
+      activityCursor = events.cursor;
+
+      const pendingHasMore = !!pending.cursor;
+      const resolvedItems = [...approved.items, ...rejected.items, ...expired.items]
+        .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+      const resolvedHasMore = !!(approved.cursor || rejected.cursor || expired.cursor);
+
+      document.getElementById('pendingCount').textContent = countLabel(pending.items.length, pendingHasMore);
+      document.getElementById('resolvedCount').textContent = countLabel(resolvedItems.length, resolvedHasMore);
+
+      // Render pending
+      const pendingEl = document.getElementById('tab-pending');
+      pendingEl.innerHTML = pending.items.length
+        ? pending.items.map(a => renderApprovalCard(a, true)).join('')
+        : emptyState('No pending approvals');
+      if (pendingHasMore) {
+        pendingEl.innerHTML += renderLoadMore('loadMorePending()');
+      }
+
+      // Render resolved (approved + rejected + expired)
+      const resolvedEl = document.getElementById('tab-resolved');
+      resolvedEl.innerHTML = resolvedItems.length
+        ? resolvedItems.map(a => renderApprovalCard(a, false)).join('')
+        : emptyState('No resolved approvals yet');
+      if (resolvedHasMore) {
+        resolvedEl.innerHTML += renderLoadMore('loadMoreResolved()');
+      }
+
+      // Render activity
+      const activityEl = document.getElementById('tab-activity');
+      activityEl.innerHTML = events.items.length
+        ? events.items.map(renderFeedItem).join('')
+        : emptyState('No activity yet');
+      if (activityCursor) {
+        activityEl.innerHTML += renderLoadMore('loadMoreActivity()');
+      }
+
+    } catch (err) {
+      showError(err.message);
+    }
+  }
+
+  async function loadMorePending() {
+    if (!pendingCursor) return;
+    try {
+      const more = await api(`/v1/approvals?status=pending&limit=50&cursor=${pendingCursor}`);
+      pendingCursor = more.cursor;
+      const el = document.getElementById('tab-pending');
+      // Remove existing load-more button
+      const loadMoreBtn = el.querySelector('[onclick="loadMorePending()"]');
+      if (loadMoreBtn) loadMoreBtn.parentElement.remove();
+      // Append new cards
+      el.innerHTML += more.items.map(a => renderApprovalCard(a, true)).join('');
+      if (more.cursor) {
+        el.innerHTML += renderLoadMore('loadMorePending()');
+      }
+      // Update count
+      const currentCount = el.querySelectorAll('.card').length;
+      document.getElementById('pendingCount').textContent = countLabel(currentCount, !!more.cursor);
+    } catch (err) {
+      showError(err.message);
+    }
+  }
+
+  async function loadMoreResolved() {
+    try {
+      const fetches = [];
+      for (const status of ['approved', 'rejected', 'expired']) {
+        if (resolvedCursors[status]) {
+          fetches.push(
+            api(`/v1/approvals?status=${status}&limit=50&cursor=${resolvedCursors[status]}`)
+              .then(r => { resolvedCursors[status] = r.cursor; return r.items; })
+          );
+        }
+      }
+      const results = await Promise.all(fetches);
+      const newItems = results.flat().sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+
+      const el = document.getElementById('tab-resolved');
+      const loadMoreBtn = el.querySelector('[onclick="loadMoreResolved()"]');
+      if (loadMoreBtn) loadMoreBtn.parentElement.remove();
+      el.innerHTML += newItems.map(a => renderApprovalCard(a, false)).join('');
+
+      const hasMore = Object.values(resolvedCursors).some(Boolean);
+      if (hasMore) {
+        el.innerHTML += renderLoadMore('loadMoreResolved()');
+      }
+      const currentCount = el.querySelectorAll('.card').length;
+      document.getElementById('resolvedCount').textContent = countLabel(currentCount, hasMore);
+    } catch (err) {
+      showError(err.message);
+    }
+  }
+
+  async function loadMoreActivity() {
+    if (!activityCursor) return;
+    try {
+      const more = await api(`/v1/audit/events?limit=50&cursor=${activityCursor}`);
+      activityCursor = more.cursor;
+      const el = document.getElementById('tab-activity');
+      const loadMoreBtn = el.querySelector('[onclick="loadMoreActivity()"]');
+      if (loadMoreBtn) loadMoreBtn.parentElement.remove();
+      el.innerHTML += more.items.map(renderFeedItem).join('');
+      if (more.cursor) {
+        el.innerHTML += renderLoadMore('loadMoreActivity()');
+      }
+    } catch (err) {
+      showError(err.message);
+    }
+  }
+
+  async function resolveApproval(id, status) {
+    const card = document.getElementById(`card-${id}`);
+    const buttons = card?.querySelectorAll('button');
+    buttons?.forEach(b => b.disabled = true);
+
+    try {
+      await apiPost(`/v1/approvals/${id}/resolve`, { status });
+      await refresh();
+    } catch (err) {
+      showError(err.message);
+      buttons?.forEach(b => b.disabled = false);
+    }
+  }
+
+  // --- Polling ---
+  function startPolling() {
+    stopPolling();
+    pollTimer = setInterval(() => {
+      if (!document.hidden) refresh();
+    }, 5000);
+  }
+
+  function stopPolling() {
+    if (pollTimer) {
+      clearInterval(pollTimer);
+      pollTimer = null;
+    }
+  }
+
+  // --- Error handling ---
+  function showError(msg) {
+    const banner = document.getElementById('errorBanner');
+    banner.textContent = msg;
+    banner.style.display = 'block';
+  }
+
+  function hideError() {
+    document.getElementById('errorBanner').style.display = 'none';
+  }
+</script>
+</body>
+</html>

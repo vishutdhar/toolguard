@@ -153,3 +153,12 @@ export interface LatestPolicyVersion {
   policy: Policy;
   version: PolicyVersion;
 }
+
+export interface WebhookConfig {
+  id: string;
+  organizationId: string;
+  url: string;
+  eventTypes: string[];
+  secret: string | null;
+  createdAt: Date;
+}

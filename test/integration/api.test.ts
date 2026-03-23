@@ -689,4 +689,289 @@ describe("ToolGuard API integration", () => {
     expect(sessionResponse.statusCode).toBe(409);
     expect(sessionResponse.json().error).toBe("ENVIRONMENT_MISMATCH");
   });
+
+  it("lists approvals with optional status filter and pagination", async () => {
+    const session = await createSession();
+
+    // Create two approval requests via authorize (gmail requires approval)
+    for (let i = 0; i < 2; i++) {
+      await app.inject({
+        method: "POST",
+        url: "/v1/tool/authorize",
+        headers,
+        payload: {
+          orgId: seed.organizationId,
+          agentId: seed.agentId,
+          sessionId: session.id,
+          tool: { name: seed.toolNames.gmail },
+          context: { environment: "production", justification: "Test" },
+          payloadSummary: { recipientDomain: "gmail.com" },
+          tokenCount: 5,
+        },
+      });
+    }
+
+    // List all approvals
+    const allResponse = await app.inject({
+      method: "GET",
+      url: "/v1/approvals",
+      headers,
+    });
+
+    expect(allResponse.statusCode).toBe(200);
+    const allBody = allResponse.json();
+    expect(allBody.items.length).toBeGreaterThanOrEqual(2);
+
+    // Filter by status=pending
+    const pendingResponse = await app.inject({
+      method: "GET",
+      url: "/v1/approvals?status=pending",
+      headers,
+    });
+
+    expect(pendingResponse.statusCode).toBe(200);
+    const pendingItems = pendingResponse.json().items;
+    for (const item of pendingItems) {
+      expect(item.status).toBe("pending");
+    }
+
+    // Paginate with limit=1
+    const page1 = await app.inject({
+      method: "GET",
+      url: "/v1/approvals?limit=1",
+      headers,
+    });
+
+    expect(page1.statusCode).toBe(200);
+    const page1Body = page1.json();
+    expect(page1Body.items).toHaveLength(1);
+    expect(page1Body.cursor).not.toBeNull();
+
+    // Fetch page 2 using cursor
+    const page2 = await app.inject({
+      method: "GET",
+      url: `/v1/approvals?limit=1&cursor=${page1Body.cursor}`,
+      headers,
+    });
+
+    expect(page2.statusCode).toBe(200);
+    expect(page2.json().items).toHaveLength(1);
+    expect(page2.json().items[0].id).not.toBe(page1Body.items[0].id);
+  });
+
+  it("lists audit events with pagination", async () => {
+    // Create an audit event
+    const session = await createSession();
+    await app.inject({
+      method: "POST",
+      url: "/v1/audit/events",
+      headers,
+      payload: {
+        orgId: seed.organizationId,
+        sessionId: session.id,
+        eventType: "custom.test",
+        actorType: "system",
+        payload: { test: true },
+      },
+    });
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/v1/audit/events",
+      headers,
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json().items.length).toBeGreaterThanOrEqual(1);
+    expect(response.json().cursor).toBeDefined();
+  });
+
+  it("manages webhook lifecycle (create, list, delete)", async () => {
+    // Create webhook
+    const createResponse = await app.inject({
+      method: "POST",
+      url: "/v1/webhooks",
+      headers,
+      payload: {
+        url: "https://example.com/webhook",
+        eventTypes: ["approval.requested", "approval.resolved"],
+        secret: "my-secret",
+      },
+    });
+
+    expect(createResponse.statusCode).toBe(201);
+    const webhook = createResponse.json();
+    expect(webhook.url).toBe("https://example.com/webhook");
+    expect(webhook.eventTypes).toEqual(["approval.requested", "approval.resolved"]);
+    expect(webhook.secret).toBe("••••••••"); // masked
+
+    // List webhooks
+    const listResponse = await app.inject({
+      method: "GET",
+      url: "/v1/webhooks",
+      headers,
+    });
+
+    expect(listResponse.statusCode).toBe(200);
+    expect(listResponse.json().items).toHaveLength(1);
+    expect(listResponse.json().items[0].id).toBe(webhook.id);
+
+    // Delete webhook
+    const deleteResponse = await app.inject({
+      method: "DELETE",
+      url: `/v1/webhooks/${webhook.id}`,
+      headers,
+    });
+
+    expect(deleteResponse.statusCode).toBe(204);
+
+    // Verify deleted
+    const afterDelete = await app.inject({
+      method: "GET",
+      url: "/v1/webhooks",
+      headers,
+    });
+
+    expect(afterDelete.json().items).toHaveLength(0);
+  });
+
+  it("returns 404 when deleting a non-existent webhook", async () => {
+    const response = await app.inject({
+      method: "DELETE",
+      url: "/v1/webhooks/whk_nonexistent",
+      headers,
+    });
+
+    expect(response.statusCode).toBe(404);
+  });
+
+  it("expires stale approvals when listing pending", async () => {
+    // Build a separate app with 0-minute TTL so approvals expire immediately
+    const { buildApp } = await import("../../src/app");
+    const { MemoryDataStore } = await import("../../src/infrastructure/memory/store");
+    const { MemoryUsageStore } = await import("../../src/infrastructure/memory/usage-store");
+    const { NoopJobQueue } = await import("../../src/infrastructure/jobs/noop-job-queue");
+    const { seedDemoData } = await import("../../src/demo/seed-data");
+
+    const { app: shortApp, services: shortServices } = await buildApp({
+      env: {
+        NODE_ENV: "test",
+        HOST: "127.0.0.1",
+        PORT: 3000,
+        LOG_LEVEL: "silent",
+        DATABASE_URL: "postgresql://toolguard:toolguard@localhost:5432/toolguard?schema=public",
+        REDIS_URL: "redis://localhost:6379",
+        STORAGE_MODE: "memory",
+        ENABLE_SWAGGER: false,
+        ALLOW_SELF_SIGNUP: true,
+        DEV_DEFAULT_DECISION: "allow",
+        PROD_DEFAULT_DECISION: "require_approval",
+        APPROVAL_TTL_MINUTES: 0, // expires immediately
+        PUBLIC_RATE_LIMIT_MAX: 1000,
+        PUBLIC_RATE_LIMIT_WINDOW_SECONDS: 60,
+        ORG_DAILY_MAX_ACTIONS: 1000,
+        ORG_DAILY_MAX_SPEND_USD: 5000,
+        ORG_DAILY_MAX_TOKENS: 500000,
+        PER_TOOL_DAILY_MAX_ACTIONS: 200,
+        BULLMQ_ENABLED: false,
+        CORS_ALLOWED_ORIGINS: "",
+      },
+      store: new MemoryDataStore(),
+      usageStore: new MemoryUsageStore(),
+      jobQueue: new NoopJobQueue(),
+    });
+
+    const shortSeed = await seedDemoData(shortServices.store, shortServices.authService);
+    const shortHeaders = { authorization: `Bearer ${shortSeed.rawApiKey}` };
+
+    // Create a session and trigger an approval
+    const sessResp = await shortApp.inject({
+      method: "POST",
+      url: "/v1/sessions",
+      headers: shortHeaders,
+      payload: {
+        orgId: shortSeed.organizationId,
+        agentId: shortSeed.agentId,
+        scopes: ["gmail:send", "gmail:write"],
+        metadata: {},
+      },
+    });
+    const session = sessResp.json();
+
+    await shortApp.inject({
+      method: "POST",
+      url: "/v1/tool/authorize",
+      headers: shortHeaders,
+      payload: {
+        orgId: shortSeed.organizationId,
+        agentId: shortSeed.agentId,
+        sessionId: session.id,
+        tool: { name: shortSeed.toolNames.gmail },
+        context: { environment: "production", justification: "Test" },
+        payloadSummary: { recipientDomain: "gmail.com" },
+        tokenCount: 5,
+      },
+    });
+
+    // Wait a tick so the TTL (0 min) is past
+    await new Promise((r) => setTimeout(r, 10));
+
+    // Key test: list expired FIRST (before any pending call) —
+    // the approval is still stored as "pending" but should appear as expired
+    const expiredResp = await shortApp.inject({
+      method: "GET",
+      url: "/v1/approvals?status=expired",
+      headers: shortHeaders,
+    });
+    expect(expiredResp.statusCode).toBe(200);
+    expect(expiredResp.json().items.length).toBeGreaterThanOrEqual(1);
+    for (const item of expiredResp.json().items) {
+      expect(item.status).toBe("expired");
+    }
+
+    // Now pending should be empty (the sweep already flipped them)
+    const listResp = await shortApp.inject({
+      method: "GET",
+      url: "/v1/approvals?status=pending",
+      headers: shortHeaders,
+    });
+    expect(listResp.statusCode).toBe(200);
+    for (const item of listResp.json().items) {
+      expect(item.status).toBe("pending");
+    }
+
+    await shortApp.close();
+  });
+
+  it("rejects webhook registration targeting private addresses", async () => {
+    const privateUrls = [
+      "http://localhost:8080/hook",
+      "http://127.0.0.1/hook",
+      "http://169.254.169.254/latest/meta-data",
+      "http://10.0.0.1/internal",
+      "http://192.168.1.1/admin",
+      "https://[fd00::1]/hook",
+      "https://[::1]/hook",
+      "https://[fe80::1]/hook",
+      "https://[::ffff:127.0.0.1]/hook",
+      "https://[::ffff:169.254.169.254]/hook",
+      "https://localhost./hook",
+      "https://metadata.google.internal./hook",
+    ];
+
+    for (const url of privateUrls) {
+      const response = await app.inject({
+        method: "POST",
+        url: "/v1/webhooks",
+        headers,
+        payload: {
+          url,
+          eventTypes: ["approval.requested"],
+        },
+      });
+
+      expect(response.statusCode).toBe(422);
+      expect(response.json().error).toBe("INVALID_WEBHOOK_URL");
+    }
+  });
 });

@@ -30,6 +30,7 @@ export async function buildTestApp(): Promise<{
       ORG_DAILY_MAX_TOKENS: 500000,
       PER_TOOL_DAILY_MAX_ACTIONS: 200,
       BULLMQ_ENABLED: false,
+      CORS_ALLOWED_ORIGINS: "",
     },
     store: new MemoryDataStore(),
     usageStore: new MemoryUsageStore(),

@@ -1,10 +1,13 @@
 import { AppError, assertApp, notFound } from "../lib/errors";
-import type { DataStore } from "../domain/store";
+import type { DataStore, PaginatedResult, PaginationOptions } from "../domain/store";
 import type { ApprovalRequest, ApprovalStatus } from "../domain/types";
 import type { AuditService } from "./audit-service";
+import type { WebhookService } from "./webhook-service";
 import type { JobQueue } from "../infrastructure/jobs/job-queue";
 
 export class ApprovalService {
+  private webhookService: WebhookService | null = null;
+
   constructor(
     private readonly store: DataStore,
     private readonly auditService: AuditService,
@@ -12,6 +15,10 @@ export class ApprovalService {
     private readonly approvalTtlMinutes: number,
     private readonly now: () => Date = () => new Date(),
   ) {}
+
+  setWebhookService(service: WebhookService): void {
+    this.webhookService = service;
+  }
 
   async create(input: {
     organizationId: string;
@@ -64,6 +71,16 @@ export class ApprovalService {
 
     await this.jobQueue.scheduleApprovalExpiry(approval.id, this.approvalTtlMinutes * 60_000);
 
+    this.webhookService?.fireEvent(input.organizationId, "approval.requested", {
+      approvalId: approval.id,
+      toolName: approval.toolName,
+      action: approval.action,
+      resource: approval.resource,
+      status: approval.status,
+      reasonCodes: approval.reasonCodes,
+      expiresAt: approval.expiresAt?.toISOString() ?? null,
+    }).catch(() => {});
+
     return approval;
   }
 
@@ -74,6 +91,36 @@ export class ApprovalService {
     }
 
     return this.expireIfNeeded(approval);
+  }
+
+  async list(
+    organizationId: string,
+    options?: PaginationOptions & { status?: ApprovalRequest["status"] },
+  ): Promise<PaginatedResult<ApprovalRequest>> {
+    // When listing expired, also sweep pending approvals that may have expired
+    // since they're still stored as "pending" and won't match a status=expired filter
+    if (options?.status === "expired") {
+      const pendingResult = await this.store.listApprovalRequests(organizationId, {
+        ...options,
+        status: "pending",
+        cursor: undefined,
+        limit: 100,
+      });
+      // Expire stale ones (side-effect: updates store)
+      await Promise.all(pendingResult.items.map((a) => this.expireIfNeeded(a)));
+    }
+
+    const result = await this.store.listApprovalRequests(organizationId, options);
+
+    // Expire any stale pending approvals before returning
+    const processed = await Promise.all(result.items.map((a) => this.expireIfNeeded(a)));
+
+    // If caller filtered by status, remove items whose status changed due to expiry
+    const filtered = options?.status
+      ? processed.filter((a) => a.status === options.status)
+      : processed;
+
+    return { items: filtered, cursor: result.cursor };
   }
 
   async resolve(
@@ -102,6 +149,16 @@ export class ApprovalService {
         resolvedAt: resolvedAt.toISOString(),
       },
     });
+
+    this.webhookService?.fireEvent(updated.organizationId, "approval.resolved", {
+      approvalId: updated.id,
+      toolName: updated.toolName,
+      action: updated.action,
+      resource: updated.resource,
+      status: updated.status,
+      resolvedBy: updated.resolvedBy,
+      resolvedAt: resolvedAt.toISOString(),
+    }).catch(() => {});
 
     return updated;
   }

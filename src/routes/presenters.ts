@@ -9,6 +9,7 @@ import type {
   Run,
   Session,
   Tool,
+  WebhookConfig,
 } from "../domain/types";
 
 export function presentOrganization(organization: Organization): Record<string, unknown> {
@@ -138,5 +139,16 @@ export function presentRun(run: Run): Record<string, unknown> {
     startedAt: run.startedAt.toISOString(),
     completedAt: run.completedAt?.toISOString() ?? null,
     metadata: run.metadata,
+  };
+}
+
+export function presentWebhookConfig(config: WebhookConfig): Record<string, unknown> {
+  return {
+    id: config.id,
+    organizationId: config.organizationId,
+    url: config.url,
+    eventTypes: config.eventTypes,
+    secret: config.secret ? "••••••••" : null,
+    createdAt: config.createdAt.toISOString(),
   };
 }

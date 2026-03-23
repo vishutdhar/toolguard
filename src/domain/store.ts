@@ -11,6 +11,7 @@ import type {
   Session,
   Tool,
   UsageCounter,
+  WebhookConfig,
 } from "./types";
 
 export interface CreateOrganizationInput {
@@ -120,6 +121,23 @@ export interface UpsertUsageCounterInput {
   tokenCount: number;
 }
 
+export interface CreateWebhookConfigInput {
+  organizationId: string;
+  url: string;
+  eventTypes: string[];
+  secret?: string | null;
+}
+
+export interface PaginationOptions {
+  cursor?: string;
+  limit?: number;
+}
+
+export interface PaginatedResult<T> {
+  items: T[];
+  cursor: string | null;
+}
+
 export interface DataStore {
   createOrganization(input: CreateOrganizationInput): Promise<Organization>;
   getOrganization(id: string): Promise<Organization | null>;
@@ -156,4 +174,12 @@ export interface DataStore {
   updateRun(id: string, input: UpdateRunInput): Promise<Run>;
 
   upsertUsageCounter(input: UpsertUsageCounterInput): Promise<UsageCounter>;
+
+  listApprovalRequests(organizationId: string, options?: PaginationOptions & { status?: ApprovalRequest["status"] }): Promise<PaginatedResult<ApprovalRequest>>;
+  listAuditEvents(organizationId: string, options?: PaginationOptions): Promise<PaginatedResult<AuditEvent>>;
+
+  createWebhookConfig(input: CreateWebhookConfigInput): Promise<WebhookConfig>;
+  listWebhookConfigs(organizationId: string): Promise<WebhookConfig[]>;
+  getWebhookConfig(id: string): Promise<WebhookConfig | null>;
+  deleteWebhookConfig(id: string): Promise<void>;
 }

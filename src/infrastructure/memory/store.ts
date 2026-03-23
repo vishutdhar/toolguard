@@ -14,6 +14,7 @@ import type {
   Session,
   Tool,
   UsageCounter,
+  WebhookConfig,
 } from "../../domain/types";
 import type {
   CreateAgentInput,
@@ -26,7 +27,10 @@ import type {
   CreateRunInput,
   CreateSessionInput,
   CreateToolInput,
+  CreateWebhookConfigInput,
   DataStore,
+  PaginatedResult,
+  PaginationOptions,
   UpdateApprovalRequestInput,
   UpdateRunInput,
   UpsertUsageCounterInput,
@@ -44,6 +48,7 @@ export class MemoryDataStore implements DataStore {
   private readonly auditEvents = new Map<string, AuditEvent>();
   private readonly runs = new Map<string, Run>();
   private readonly usageCounters = new Map<string, UsageCounter>();
+  private readonly webhookConfigs = new Map<string, WebhookConfig>();
 
   async createOrganization(input: CreateOrganizationInput): Promise<Organization> {
     const organization: Organization = {
@@ -337,5 +342,86 @@ export class MemoryDataStore implements DataStore {
     };
     this.usageCounters.set(input.scopeKey, counter);
     return { ...counter };
+  }
+
+  async listApprovalRequests(
+    organizationId: string,
+    options?: PaginationOptions & { status?: ApprovalRequest["status"] },
+  ): Promise<PaginatedResult<ApprovalRequest>> {
+    const limit = Math.min(options?.limit ?? 50, 100);
+    let items = [...this.approvals.values()]
+      .filter((a) => a.organizationId === organizationId)
+      .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+
+    if (options?.status) {
+      items = items.filter((a) => a.status === options.status);
+    }
+
+    if (options?.cursor) {
+      const cursorIndex = items.findIndex((a) => a.id === options.cursor);
+      if (cursorIndex >= 0) {
+        items = items.slice(cursorIndex + 1);
+      }
+    }
+
+    const page = items.slice(0, limit);
+    return {
+      items: page.map((a) => ({ ...a, reasonCodes: [...a.reasonCodes] })),
+      cursor: page.length === limit ? page[page.length - 1].id : null,
+    };
+  }
+
+  async listAuditEvents(
+    organizationId: string,
+    options?: PaginationOptions,
+  ): Promise<PaginatedResult<AuditEvent>> {
+    const limit = Math.min(options?.limit ?? 50, 100);
+    let items = [...this.auditEvents.values()]
+      .filter((e) => e.organizationId === organizationId)
+      .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+
+    if (options?.cursor) {
+      const cursorIndex = items.findIndex((e) => e.id === options.cursor);
+      if (cursorIndex >= 0) {
+        items = items.slice(cursorIndex + 1);
+      }
+    }
+
+    const page = items.slice(0, limit);
+    return {
+      items: page.map((e) => ({ ...e, payload: { ...e.payload } })),
+      cursor: page.length === limit ? page[page.length - 1].id : null,
+    };
+  }
+
+  async createWebhookConfig(input: CreateWebhookConfigInput): Promise<WebhookConfig> {
+    const config: WebhookConfig = {
+      id: generateId("whk"),
+      organizationId: input.organizationId,
+      url: input.url,
+      eventTypes: [...input.eventTypes],
+      secret: input.secret ?? null,
+      createdAt: new Date(),
+    };
+    this.webhookConfigs.set(config.id, config);
+    return { ...config, eventTypes: [...config.eventTypes] };
+  }
+
+  async listWebhookConfigs(organizationId: string): Promise<WebhookConfig[]> {
+    return [...this.webhookConfigs.values()]
+      .filter((c) => c.organizationId === organizationId)
+      .map((c) => ({ ...c, eventTypes: [...c.eventTypes] }));
+  }
+
+  async getWebhookConfig(id: string): Promise<WebhookConfig | null> {
+    const config = this.webhookConfigs.get(id);
+    return config ? { ...config, eventTypes: [...config.eventTypes] } : null;
+  }
+
+  async deleteWebhookConfig(id: string): Promise<void> {
+    if (!this.webhookConfigs.has(id)) {
+      throw notFound("Webhook config", { id });
+    }
+    this.webhookConfigs.delete(id);
   }
 }

@@ -1,5 +1,6 @@
 import Fastify, { type FastifyInstance, type FastifyServerOptions } from "fastify";
 import cors from "@fastify/cors";
+import helmet from "@fastify/helmet";
 import rateLimit from "@fastify/rate-limit";
 import swagger from "@fastify/swagger";
 import swaggerUi from "@fastify/swagger-ui";
@@ -27,6 +28,7 @@ import { PolicyService } from "./services/policy-service";
 import { ReplayService } from "./services/replay-service";
 import { RunService } from "./services/run-service";
 import { UsageService } from "./services/usage-service";
+import { WebhookService } from "./services/webhook-service";
 
 export interface BuildAppOptions {
   env?: AppEnv;
@@ -52,6 +54,7 @@ export interface BuiltApp {
     runService: RunService;
     replayService: ReplayService;
     authorizationService: AuthorizationService;
+    webhookService: WebhookService;
     healthCheck: () => Promise<{
       status: "ok" | "degraded";
       storageMode: "memory" | "prisma";
@@ -114,6 +117,8 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
     approvalService,
     auditService,
   );
+  const webhookService = new WebhookService(store);
+  approvalService.setWebhookService(webhookService);
 
   const healthCheck = async () => {
     if (env.STORAGE_MODE === "memory") {
@@ -170,8 +175,18 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
   app.setValidatorCompiler(validatorCompiler);
   app.setSerializerCompiler(serializerCompiler);
 
+  const corsOrigin = (() => {
+    if (env.NODE_ENV !== "production") return true;
+    const origins = env.CORS_ALLOWED_ORIGINS.split(",").map((s) => s.trim()).filter(Boolean);
+    return origins.length > 0 ? origins : false;
+  })();
+
   await app.register(cors, {
-    origin: true,
+    origin: corsOrigin,
+  });
+
+  await app.register(helmet, {
+    contentSecurityPolicy: env.ENABLE_SWAGGER ? false : undefined,
   });
 
   await app.register(rateLimit, {
@@ -232,6 +247,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
     runService,
     replayService,
     authorizationService,
+    webhookService,
     healthCheck,
   });
 
@@ -291,6 +307,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
       runService,
       replayService,
       authorizationService,
+      webhookService,
       healthCheck,
     },
   };

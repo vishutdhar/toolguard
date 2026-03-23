@@ -11,6 +11,7 @@ import type { PolicyService } from "../services/policy-service";
 import type { ReplayService } from "../services/replay-service";
 import type { RunService } from "../services/run-service";
 import type { UsageService } from "../services/usage-service";
+import { type WebhookService, validateWebhookUrl } from "../services/webhook-service";
 import type { DataStore } from "../domain/store";
 import { AppError, assertApp, notFound } from "../lib/errors";
 import {
@@ -31,6 +32,7 @@ import {
   presentRun,
   presentSession,
   presentTool,
+  presentWebhookConfig,
 } from "./presenters";
 
 type Services = {
@@ -44,6 +46,7 @@ type Services = {
   runService: RunService;
   replayService: ReplayService;
   authorizationService: AuthorizationService;
+  webhookService: WebhookService;
   healthCheck: () => Promise<{
     status: "ok" | "degraded";
     storageMode: "memory" | "prisma";
@@ -937,6 +940,155 @@ export async function registerRoutes(
       return {
         items: await services.replayService.replay(request.params.runId),
       };
+    },
+  );
+
+  // --- List approvals ---
+  typedApp.get(
+    "/v1/approvals",
+    {
+      schema: {
+        tags: ["Approvals"],
+        security: [{ bearerAuth: [] }],
+        summary: "List approval requests for the authenticated organization",
+        querystring: z.object({
+          status: z.enum(["pending", "approved", "rejected", "expired"]).optional(),
+          cursor: z.string().optional(),
+          limit: z.coerce.number().int().min(1).max(100).optional(),
+        }),
+        response: {
+          200: z.object({
+            items: z.array(z.record(z.string(), z.unknown())),
+            cursor: z.string().nullable(),
+          }),
+        },
+      },
+    },
+    async (request) => {
+      const auth = await requireAuth(request.headers.authorization);
+      const result = await services.approvalService.list(auth.organization.id, {
+        status: request.query.status,
+        cursor: request.query.cursor,
+        limit: request.query.limit,
+      });
+      return {
+        items: result.items.map(presentApproval),
+        cursor: result.cursor,
+      };
+    },
+  );
+
+  // --- List audit events ---
+  typedApp.get(
+    "/v1/audit/events",
+    {
+      schema: {
+        tags: ["Audit"],
+        security: [{ bearerAuth: [] }],
+        summary: "List audit events for the authenticated organization",
+        querystring: z.object({
+          cursor: z.string().optional(),
+          limit: z.coerce.number().int().min(1).max(100).optional(),
+        }),
+        response: {
+          200: z.object({
+            items: z.array(z.record(z.string(), z.unknown())),
+            cursor: z.string().nullable(),
+          }),
+        },
+      },
+    },
+    async (request) => {
+      const auth = await requireAuth(request.headers.authorization);
+      const result = await services.store.listAuditEvents(auth.organization.id, {
+        cursor: request.query.cursor,
+        limit: request.query.limit,
+      });
+      return {
+        items: result.items.map(presentAuditEvent),
+        cursor: result.cursor,
+      };
+    },
+  );
+
+  // --- Webhook CRUD ---
+  typedApp.post(
+    "/v1/webhooks",
+    {
+      schema: {
+        tags: ["Webhooks"],
+        security: [{ bearerAuth: [] }],
+        summary: "Register a webhook",
+        body: z.object({
+          url: z.string().url(),
+          eventTypes: z.array(z.string()).min(1),
+          secret: z.string().optional().nullable(),
+        }),
+        response: {
+          201: z.record(z.string(), z.unknown()),
+        },
+      },
+    },
+    async (request, reply) => {
+      const auth = await requireAuth(request.headers.authorization);
+      try {
+        validateWebhookUrl(request.body.url, services.env.NODE_ENV !== "production");
+      } catch (err) {
+        throw new AppError((err as Error).message, 422, "INVALID_WEBHOOK_URL");
+      }
+      const config = await services.store.createWebhookConfig({
+        organizationId: auth.organization.id,
+        url: request.body.url,
+        eventTypes: request.body.eventTypes,
+        secret: request.body.secret ?? null,
+      });
+      return reply.status(201).send(presentWebhookConfig(config));
+    },
+  );
+
+  typedApp.get(
+    "/v1/webhooks",
+    {
+      schema: {
+        tags: ["Webhooks"],
+        security: [{ bearerAuth: [] }],
+        summary: "List webhooks for the authenticated organization",
+        response: {
+          200: z.object({
+            items: z.array(z.record(z.string(), z.unknown())),
+          }),
+        },
+      },
+    },
+    async (request) => {
+      const auth = await requireAuth(request.headers.authorization);
+      const configs = await services.store.listWebhookConfigs(auth.organization.id);
+      return { items: configs.map(presentWebhookConfig) };
+    },
+  );
+
+  typedApp.delete(
+    "/v1/webhooks/:webhookId",
+    {
+      schema: {
+        tags: ["Webhooks"],
+        security: [{ bearerAuth: [] }],
+        summary: "Delete a webhook",
+        params: z.object({
+          webhookId: z.string().min(1),
+        }),
+        response: {
+          204: z.undefined(),
+        },
+      },
+    },
+    async (request, reply) => {
+      const auth = await requireAuth(request.headers.authorization);
+      const config = await services.store.getWebhookConfig(request.params.webhookId);
+      assertApp(config, "Webhook not found", 404, "WEBHOOK_NOT_FOUND");
+      assertApp(config.organizationId === auth.organization.id, "Webhook not found", 404, "WEBHOOK_NOT_FOUND");
+      await services.store.deleteWebhookConfig(request.params.webhookId);
+      return reply.status(204).send();
     },
   );
 }

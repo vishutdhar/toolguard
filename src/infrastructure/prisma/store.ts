@@ -15,6 +15,7 @@ import type {
   Session,
   Tool,
   UsageCounter,
+  WebhookConfig,
 } from "../../domain/types";
 import type {
   CreateAgentInput,
@@ -27,7 +28,10 @@ import type {
   CreateRunInput,
   CreateSessionInput,
   CreateToolInput,
+  CreateWebhookConfigInput,
   DataStore,
+  PaginatedResult,
+  PaginationOptions,
   UpdateApprovalRequestInput,
   UpdateRunInput,
   UpsertUsageCounterInput,
@@ -204,6 +208,20 @@ function mapRun(record: {
   return {
     ...record,
     metadata: jsonObject(record.metadata),
+  };
+}
+
+function mapWebhookConfig(record: {
+  id: string;
+  organizationId: string;
+  url: string;
+  eventTypes: Prisma.JsonValue;
+  secret: string | null;
+  createdAt: Date;
+}): WebhookConfig {
+  return {
+    ...record,
+    eventTypes: stringArray(record.eventTypes),
   };
 }
 
@@ -490,5 +508,77 @@ export class PrismaDataStore implements DataStore {
         },
       }),
     );
+  }
+
+  async listApprovalRequests(
+    organizationId: string,
+    options?: PaginationOptions & { status?: ApprovalRequest["status"] },
+  ): Promise<PaginatedResult<ApprovalRequest>> {
+    const limit = Math.min(options?.limit ?? 50, 100);
+    const where: Prisma.ApprovalRequestWhereInput = { organizationId };
+    if (options?.status) {
+      where.status = options.status;
+    }
+
+    const records = await this.client.approvalRequest.findMany({
+      where,
+      orderBy: { createdAt: "desc" },
+      take: limit,
+      ...(options?.cursor ? { skip: 1, cursor: { id: options.cursor } } : {}),
+    });
+
+    return {
+      items: records.map(mapApproval),
+      cursor: records.length === limit ? records[records.length - 1].id : null,
+    };
+  }
+
+  async listAuditEvents(
+    organizationId: string,
+    options?: PaginationOptions,
+  ): Promise<PaginatedResult<AuditEvent>> {
+    const limit = Math.min(options?.limit ?? 50, 100);
+
+    const records = await this.client.auditEvent.findMany({
+      where: { organizationId },
+      orderBy: { createdAt: "desc" },
+      take: limit,
+      ...(options?.cursor ? { skip: 1, cursor: { id: options.cursor } } : {}),
+    });
+
+    return {
+      items: records.map(mapAuditEvent),
+      cursor: records.length === limit ? records[records.length - 1].id : null,
+    };
+  }
+
+  async createWebhookConfig(input: CreateWebhookConfigInput): Promise<WebhookConfig> {
+    return mapWebhookConfig(
+      await this.client.webhookConfig.create({
+        data: {
+          organizationId: input.organizationId,
+          url: input.url,
+          eventTypes: inputJsonValue(input.eventTypes),
+          secret: input.secret ?? null,
+        },
+      }),
+    );
+  }
+
+  async listWebhookConfigs(organizationId: string): Promise<WebhookConfig[]> {
+    const records = await this.client.webhookConfig.findMany({
+      where: { organizationId },
+      orderBy: { createdAt: "asc" },
+    });
+    return records.map(mapWebhookConfig);
+  }
+
+  async getWebhookConfig(id: string): Promise<WebhookConfig | null> {
+    const record = await this.client.webhookConfig.findUnique({ where: { id } });
+    return record ? mapWebhookConfig(record) : null;
+  }
+
+  async deleteWebhookConfig(id: string): Promise<void> {
+    await this.client.webhookConfig.delete({ where: { id } });
   }
 }
