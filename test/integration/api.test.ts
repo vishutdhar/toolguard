@@ -1,5 +1,12 @@
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { buildTestApp } from "../helpers/build-test-app";
+
+// Default DNS mock: resolve to a safe public IP so webhook creation tests pass
+// without depending on real DNS resolution.
+vi.mock("node:dns/promises", () => ({
+  resolve4: vi.fn().mockResolvedValue(["93.184.216.34"]),
+  resolve6: vi.fn().mockRejectedValue(Object.assign(new Error("ENODATA"), { code: "ENODATA" })),
+}));
 
 describe("ToolGuard API integration", () => {
   let app: Awaited<ReturnType<typeof buildTestApp>>["app"];
@@ -973,5 +980,43 @@ describe("ToolGuard API integration", () => {
       expect(response.statusCode).toBe(422);
       expect(response.json().error).toBe("INVALID_WEBHOOK_URL");
     }
+  });
+
+  it("rejects webhook URLs that resolve to private IPs via DNS rebinding", async () => {
+    // Simulate a public-looking hostname (e.g. 127.0.0.1.nip.io) that resolves to loopback
+    const { resolve4 } = await import("node:dns/promises");
+    vi.mocked(resolve4).mockResolvedValueOnce(["127.0.0.1"]);
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/v1/webhooks",
+      headers,
+      payload: {
+        url: "https://evil-rebind.example.com/hook",
+        eventTypes: ["approval.requested"],
+      },
+    });
+
+    expect(response.statusCode).toBe(422);
+    expect(response.json().error).toBe("INVALID_WEBHOOK_URL");
+  });
+
+  it("rejects webhook URLs that resolve to link-local IPv6 via DNS", async () => {
+    const { resolve4, resolve6 } = await import("node:dns/promises");
+    vi.mocked(resolve4).mockRejectedValueOnce(Object.assign(new Error("ENODATA"), { code: "ENODATA" }));
+    vi.mocked(resolve6).mockResolvedValueOnce(["fe80::1"]);
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/v1/webhooks",
+      headers,
+      payload: {
+        url: "https://ipv6-rebind.example.com/hook",
+        eventTypes: ["approval.requested"],
+      },
+    });
+
+    expect(response.statusCode).toBe(422);
+    expect(response.json().error).toBe("INVALID_WEBHOOK_URL");
   });
 });

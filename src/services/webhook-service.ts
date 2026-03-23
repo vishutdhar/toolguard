@@ -1,4 +1,5 @@
 import { createHmac } from "node:crypto";
+import { resolve4, resolve6 } from "node:dns/promises";
 import type { DataStore } from "../domain/store";
 
 const BLOCKED_HOSTNAMES = new Set([
@@ -69,7 +70,22 @@ function isPrivateIp(hostname: string): boolean {
   return false;
 }
 
-export function validateWebhookUrl(url: string, allowInsecure = false): void {
+async function resolveHostnameIps(hostname: string): Promise<string[]> {
+  const ips: string[] = [];
+  try {
+    ips.push(...(await resolve4(hostname)));
+  } catch {
+    // No A records
+  }
+  try {
+    ips.push(...(await resolve6(hostname)));
+  } catch {
+    // No AAAA records
+  }
+  return ips;
+}
+
+export async function validateWebhookUrl(url: string, allowInsecure = false): Promise<void> {
   let parsed: URL;
   try {
     parsed = new URL(url);
@@ -89,6 +105,15 @@ export function validateWebhookUrl(url: string, allowInsecure = false): void {
   const hostname = parsed.hostname.toLowerCase().replace(/\.+$/, "");
   if (BLOCKED_HOSTNAMES.has(hostname) || isPrivateIp(hostname)) {
     throw new Error("Webhook URL must not target private or reserved addresses");
+  }
+
+  // Resolve DNS and validate all returned IPs — blocks rebinding attacks
+  // (e.g. 127.0.0.1.nip.io resolves to 127.0.0.1)
+  const resolvedIps = await resolveHostnameIps(hostname);
+  for (const ip of resolvedIps) {
+    if (isPrivateIp(ip)) {
+      throw new Error("Webhook URL must not resolve to private or reserved addresses");
+    }
   }
 }
 
@@ -114,6 +139,9 @@ export class WebhookService {
 
     await Promise.allSettled(
       matching.map(async (config) => {
+        // Re-validate at delivery time — DNS records may have changed since registration
+        await validateWebhookUrl(config.url, this.allowInsecureUrls);
+
         const headers: Record<string, string> = { "Content-Type": "application/json" };
         if (config.secret) {
           headers["X-ToolGuard-Signature"] = createHmac("sha256", config.secret)

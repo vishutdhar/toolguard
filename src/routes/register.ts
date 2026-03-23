@@ -1032,7 +1032,7 @@ export async function registerRoutes(
     async (request, reply) => {
       const auth = await requireAuth(request.headers.authorization);
       try {
-        validateWebhookUrl(request.body.url, services.env.NODE_ENV !== "production");
+        await validateWebhookUrl(request.body.url, services.env.NODE_ENV !== "production");
       } catch (err) {
         throw new AppError((err as Error).message, 422, "INVALID_WEBHOOK_URL");
       }
