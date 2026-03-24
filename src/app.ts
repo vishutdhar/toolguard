@@ -117,7 +117,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
     approvalService,
     auditService,
   );
-  const webhookService = new WebhookService(store);
+  const webhookService = new WebhookService(store, env.NODE_ENV !== "production");
   approvalService.setWebhookService(webhookService);
 
   const healthCheck = async () => {
