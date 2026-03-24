@@ -1001,6 +1001,68 @@ describe("ToolGuard API integration", () => {
     expect(response.json().error).toBe("INVALID_WEBHOOK_URL");
   });
 
+  it("delivers webhooks to HTTP URLs in non-production environments", async () => {
+    // Register an HTTP (not HTTPS) webhook — allowed because NODE_ENV=test
+    const createResp = await app.inject({
+      method: "POST",
+      url: "/v1/webhooks",
+      headers,
+      payload: {
+        url: "http://example.com/hook",
+        eventTypes: ["approval.requested"],
+      },
+    });
+    expect(createResp.statusCode).toBe(201);
+
+    // Spy on fetch to verify delivery-time validation doesn't reject the HTTP URL
+    const fetchSpy = vi.spyOn(global, "fetch").mockResolvedValue(new Response("ok"));
+
+    try {
+      // Create session + trigger approval (fires webhook)
+      const sessResp = await app.inject({
+        method: "POST",
+        url: "/v1/sessions",
+        headers,
+        payload: {
+          orgId: seed.organizationId,
+          agentId: seed.agentId,
+          userId: "user_webhook_http",
+          servicePrincipal: null,
+          environment: "production",
+          scopes: ["gmail:send"],
+          metadata: {},
+        },
+      });
+      const session = sessResp.json();
+
+      await app.inject({
+        method: "POST",
+        url: "/v1/tool/authorize",
+        headers,
+        payload: {
+          orgId: seed.organizationId,
+          agentId: seed.agentId,
+          sessionId: session.id,
+          tool: { name: seed.toolNames.gmail, action: "send", resource: "external_email", riskLevel: "high", estimatedCostUsd: 0 },
+          context: { environment: "production", justification: "HTTP webhook test" },
+          payloadSummary: { recipientDomain: "gmail.com" },
+          tokenCount: 5,
+        },
+      });
+
+      // Give the fire-and-forget webhook dispatch a tick to run
+      await new Promise((r) => setTimeout(r, 50));
+
+      // Verify fetch was called with the HTTP URL (not silently dropped)
+      const httpCalls = fetchSpy.mock.calls.filter(
+        ([url]) => typeof url === "string" && url.startsWith("http://example.com/hook"),
+      );
+      expect(httpCalls.length).toBeGreaterThanOrEqual(1);
+    } finally {
+      fetchSpy.mockRestore();
+    }
+  });
+
   it("rejects webhook URLs that resolve to link-local IPv6 via DNS", async () => {
     const { resolve4, resolve6 } = await import("node:dns/promises");
     vi.mocked(resolve4).mockRejectedValueOnce(Object.assign(new Error("ENODATA"), { code: "ENODATA" }));
