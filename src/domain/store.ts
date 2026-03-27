@@ -84,6 +84,8 @@ export interface UpdateApprovalRequestInput {
   status: ApprovalRequest["status"];
   resolvedBy?: string | null;
   resolvedAt?: Date | null;
+  consumedAt?: Date | null;
+  consumedByInvocationId?: string | null;
 }
 
 export interface CreateAuditEventInput {

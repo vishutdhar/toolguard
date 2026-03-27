@@ -76,7 +76,7 @@ const decisionResponseSchema = z.object({
   policyVersionId: z.string().nullable(),
   matchedRuleIndex: z.number().int().nullable(),
   approvalId: z.string().nullable(),
-  approvalStatus: z.enum(["pending", "approved", "rejected", "expired"]).nullable(),
+  approvalStatus: z.enum(["pending", "approved", "rejected", "expired", "consumed"]).nullable(),
   limits: z.object({
     remainingActionsToday: z.number(),
     remainingBudgetUsd: z.number(),
@@ -684,6 +684,7 @@ export async function registerRoutes(
           sessionId: z.string().min(1),
           runId: z.string().optional().nullable(),
           approvalId: z.string().optional().nullable(),
+          invocationId: z.string().optional().nullable(),
           tool: toolInputSchema,
           context: metadataSchema,
           payloadSummary: metadataSchema,
@@ -703,6 +704,7 @@ export async function registerRoutes(
         sessionId: request.body.sessionId,
         runId: request.body.runId ?? null,
         approvalId: request.body.approvalId ?? null,
+        invocationId: request.body.invocationId ?? null,
         tool: request.body.tool,
         context: request.body.context,
         payloadSummary: request.body.payloadSummary,
@@ -952,7 +954,7 @@ export async function registerRoutes(
         security: [{ bearerAuth: [] }],
         summary: "List approval requests for the authenticated organization",
         querystring: z.object({
-          status: z.enum(["pending", "approved", "rejected", "expired"]).optional(),
+          status: z.enum(["pending", "approved", "rejected", "expired", "consumed"]).optional(),
           cursor: z.string().optional(),
           limit: z.coerce.number().int().min(1).max(100).optional(),
         }),

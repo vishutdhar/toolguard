@@ -170,6 +170,8 @@ function mapApproval(record: {
   resolvedBy: string | null;
   resolvedAt: Date | null;
   expiresAt: Date | null;
+  consumedAt: Date | null;
+  consumedByInvocationId: string | null;
   createdAt: Date;
 }): ApprovalRequest {
   return {

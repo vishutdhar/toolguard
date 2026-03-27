@@ -16,6 +16,7 @@ export interface AuthorizeToolInput extends Omit<PolicyEvaluationRequest, "tool"
   };
   runId?: string | null;
   approvalId?: string | null;
+  invocationId?: string | null;
   tokenCount?: number;
 }
 
@@ -171,6 +172,7 @@ export class AuthorizationService {
 
     const approvedByOverride = await this.handleApprovalOverride({
       approvalId: input.approvalId ?? null,
+      invocationId: input.invocationId ?? null,
       organizationId: organization.id,
       sessionId: session.id,
       toolName: tool.name,
@@ -257,6 +259,11 @@ export class AuthorizationService {
       };
     }
 
+    // Consume the approval atomically so it cannot be replayed
+    if (approvedByOverride.approved && approvedByOverride.approvalId && approvedByOverride.approvalStatus !== "consumed") {
+      await this.approvalService.consume(approvedByOverride.approvalId, input.invocationId ?? null);
+    }
+
     await this.logToolDecision("tool.authorized", organization.id, session.id, run?.id ?? null, agent.id, {
       toolName: input.tool.name,
       approvalId: approvedByOverride.approvalId,
@@ -278,6 +285,7 @@ export class AuthorizationService {
   private async handleApprovalOverride(
     input: {
       approvalId: string | null;
+      invocationId: string | null;
       organizationId: string;
       sessionId: string;
       toolName: string;
@@ -313,6 +321,18 @@ export class AuthorizationService {
         approvalId: approval.id,
         approvalStatus: "approved",
       };
+    }
+
+    // Already consumed — allow idempotent retry with same invocationId
+    if (approval.status === "consumed") {
+      if (input.invocationId && approval.consumedByInvocationId === input.invocationId) {
+        return {
+          approved: true,
+          approvalId: approval.id,
+          approvalStatus: "consumed",
+        };
+      }
+      throw new AppError("Approval has already been consumed", 409, "APPROVAL_ALREADY_CONSUMED");
     }
 
     if (approval.status === "pending") {

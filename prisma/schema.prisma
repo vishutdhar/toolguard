@@ -18,6 +18,7 @@ enum ApprovalStatus {
   approved
   rejected
   expired
+  consumed
 }
 
 enum RunStatus {
@@ -152,6 +153,8 @@ model ApprovalRequest {
   resolvedBy         String?
   resolvedAt         DateTime?
   expiresAt          DateTime?
+  consumedAt         DateTime?
+  consumedByInvocationId String?
   createdAt          DateTime        @default(now())
   organization       Organization    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   session            Session         @relation(fields: [sessionId], references: [id], onDelete: Cascade)

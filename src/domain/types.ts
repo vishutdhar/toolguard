@@ -2,7 +2,7 @@ import type { JsonObject, JsonValue } from "../lib/json";
 
 export type Decision = "allow" | "deny" | "require_approval";
 export type RiskLevel = "low" | "medium" | "high";
-export type ApprovalStatus = "pending" | "approved" | "rejected" | "expired";
+export type ApprovalStatus = "pending" | "approved" | "rejected" | "expired" | "consumed";
 export type RunStatus = "started" | "completed" | "failed";
 
 export interface Organization {
@@ -110,6 +110,8 @@ export interface ApprovalRequest {
   resolvedBy: string | null;
   resolvedAt: Date | null;
   expiresAt: Date | null;
+  consumedAt: Date | null;
+  consumedByInvocationId: string | null;
   createdAt: Date;
 }
 

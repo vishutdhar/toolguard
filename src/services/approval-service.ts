@@ -163,6 +163,29 @@ export class ApprovalService {
     return updated;
   }
 
+  async consume(approvalId: string, invocationId: string | null): Promise<ApprovalRequest> {
+    const updated = await this.store.updateApprovalRequest(approvalId, {
+      status: "consumed",
+      consumedAt: this.now(),
+      consumedByInvocationId: invocationId,
+    }, "approved");
+
+    await this.auditService.log({
+      organizationId: updated.organizationId,
+      sessionId: updated.sessionId,
+      runId: updated.runId,
+      eventType: "approval.consumed",
+      actorType: "system",
+      actorId: null,
+      payload: {
+        approvalId: updated.id,
+        invocationId,
+      },
+    });
+
+    return updated;
+  }
+
   async validateApprovedApproval(input: {
     approvalId: string;
     organizationId: string;
@@ -209,10 +232,20 @@ export class ApprovalService {
       return approval;
     }
 
-    const expired = await this.store.updateApprovalRequest(approval.id, {
-      status: "expired",
-      resolvedAt: this.now(),
-    });
+    let expired: ApprovalRequest;
+    try {
+      expired = await this.store.updateApprovalRequest(approval.id, {
+        status: "expired",
+        resolvedAt: this.now(),
+      }, "pending");
+    } catch (err) {
+      // Another operation (resolve/consume) already changed the status — re-read current state
+      if (err instanceof AppError && err.code === "APPROVAL_STATUS_CHANGED") {
+        const current = await this.store.getApprovalRequest(approval.id);
+        return current ?? approval;
+      }
+      throw err;
+    }
 
     await this.auditService.log({
       organizationId: expired.organizationId,

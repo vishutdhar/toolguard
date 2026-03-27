@@ -237,6 +237,8 @@ export class MemoryDataStore implements DataStore {
       resolvedBy: null,
       resolvedAt: null,
       expiresAt: input.expiresAt ?? null,
+      consumedAt: null,
+      consumedByInvocationId: null,
       createdAt: new Date(),
     };
     this.approvals.set(approval.id, approval);
@@ -265,6 +267,8 @@ export class MemoryDataStore implements DataStore {
     approval.status = input.status;
     approval.resolvedBy = input.resolvedBy ?? approval.resolvedBy;
     approval.resolvedAt = input.resolvedAt ?? approval.resolvedAt;
+    approval.consumedAt = input.consumedAt ?? approval.consumedAt;
+    approval.consumedByInvocationId = input.consumedByInvocationId ?? approval.consumedByInvocationId;
 
     return { ...approval, reasonCodes: [...approval.reasonCodes] };
   }
