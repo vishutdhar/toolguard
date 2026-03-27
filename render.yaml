@@ -1,0 +1,28 @@
+services:
+  - type: web
+    name: toolguard-api
+    runtime: node
+    plan: free
+    buildCommand: npm ci && npx prisma generate && npm run build
+    startCommand: node dist/src/server.js
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: HOST
+        value: 0.0.0.0
+      - key: PORT
+        value: 10000
+      - key: STORAGE_MODE
+        value: memory
+      - key: ENABLE_SWAGGER
+        value: "false"
+      - key: ALLOW_SELF_SIGNUP
+        value: "true"
+      - key: APPROVAL_TTL_MINUTES
+        value: "60"
+      - key: BULLMQ_ENABLED
+        value: "false"
+      - key: DEV_DEFAULT_DECISION
+        value: allow
+      - key: PROD_DEFAULT_DECISION
+        value: require_approval
