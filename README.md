@@ -40,6 +40,46 @@ ToolGuard adds one API call before every tool execution. Your agent code barely 
 - **Server-side cost tracking** — estimated costs stored in the tool catalog, not trusted from callers
 - **Atomic approval resolution** — concurrent approvals can't double-resolve
 
+## Try the hosted demo
+
+A public demo instance is deployed on Render. No install, no Docker — get
+from curl to an authorized tool call in under a minute.
+
+> **Demo URL:** `https://toolguard-api.example` *(replace once deployed — see
+> [`docs/DEPLOY_RENDER.md`](docs/DEPLOY_RENDER.md))*
+
+```bash
+export TG_URL=https://toolguard-api.example
+
+# 1. Bootstrap a demo org and capture the API key
+BOOTSTRAP=$(curl -s -X POST $TG_URL/v1/organizations \
+  -H 'Content-Type: application/json' \
+  -d '{"name": "Quickstart", "apiKeyName": "demo"}')
+export TG_KEY=$(echo "$BOOTSTRAP" | jq -r .rawApiKey)
+export TG_ORG=$(echo "$BOOTSTRAP" | jq -r .organization.id)
+
+# 2. Register an agent and open a session
+export TG_AGENT=$(curl -s -X POST $TG_URL/v1/agents \
+  -H "Authorization: Bearer $TG_KEY" -H 'Content-Type: application/json' \
+  -d '{"orgId":"'$TG_ORG'","name":"demo-agent","environment":"development"}' \
+  | jq -r .id)
+export TG_SESSION=$(curl -s -X POST $TG_URL/v1/sessions \
+  -H "Authorization: Bearer $TG_KEY" -H 'Content-Type: application/json' \
+  -d '{"orgId":"'$TG_ORG'","agentId":"'$TG_AGENT'","environment":"development","scopes":["demo"]}' \
+  | jq -r .id)
+
+# 3. Authorize a tool call
+curl -s -X POST $TG_URL/v1/tool/authorize \
+  -H "Authorization: Bearer $TG_KEY" -H 'Content-Type: application/json' \
+  -d '{"orgId":"'$TG_ORG'","agentId":"'$TG_AGENT'","sessionId":"'$TG_SESSION'",
+       "tool":{"name":"slack.post_message"},
+       "payloadSummary":{"channelType":"internal"}}' | jq .
+```
+
+The hosted demo database resets periodically. For persistent use, deploy
+your own instance (see [`docs/DEPLOY_RENDER.md`](docs/DEPLOY_RENDER.md)) or
+run locally via the [Quick Start](#quick-start) below.
+
 ## Quick Start
 
 ```bash

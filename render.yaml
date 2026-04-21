@@ -1,0 +1,82 @@
+# ToolGuard - Render Blueprint
+#
+# One-click deploy: https://render.com/deploy?repo=https://github.com/vishutdhar/toolguard
+#
+# Provisions:
+#   - toolguard-db      Managed Postgres (migrations run on every deploy)
+#   - toolguard-redis   Managed Redis/KeyValue (BullMQ backing store)
+#   - toolguard-api     Fastify API (HTTPS + /healthz health check)
+#   - toolguard-worker  BullMQ worker (approval expiry jobs)
+#
+# Plan sizing is set to the lowest paid/free tiers appropriate for a public
+# demo instance. Resize before taking real production traffic. See
+# docs/DEPLOY_RENDER.md for the walkthrough and environment notes.
+
+databases:
+  - name: toolguard-db
+    databaseName: toolguard
+    user: toolguard
+    plan: basic-256mb
+
+services:
+  - type: redis
+    name: toolguard-redis
+    plan: free
+    ipAllowList: []
+    maxmemoryPolicy: noeviction
+
+  - type: web
+    name: toolguard-api
+    runtime: docker
+    plan: starter
+    healthCheckPath: /healthz
+    autoDeploy: true
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: HOST
+        value: 0.0.0.0
+      - key: LOG_LEVEL
+        value: info
+      - key: STORAGE_MODE
+        value: prisma
+      - key: ENABLE_SWAGGER
+        value: "true"
+      - key: ALLOW_SELF_SIGNUP
+        value: "true"
+      - key: BULLMQ_ENABLED
+        value: "true"
+      - key: DATABASE_URL
+        fromDatabase:
+          name: toolguard-db
+          property: connectionString
+      - key: REDIS_URL
+        fromService:
+          type: redis
+          name: toolguard-redis
+          property: connectionString
+
+  - type: worker
+    name: toolguard-worker
+    runtime: docker
+    plan: starter
+    autoDeploy: true
+    dockerCommand: sh -c "npx prisma migrate deploy && node dist/src/worker.js"
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: LOG_LEVEL
+        value: info
+      - key: STORAGE_MODE
+        value: prisma
+      - key: BULLMQ_ENABLED
+        value: "true"
+      - key: DATABASE_URL
+        fromDatabase:
+          name: toolguard-db
+          property: connectionString
+      - key: REDIS_URL
+        fromService:
+          type: redis
+          name: toolguard-redis
+          property: connectionString
