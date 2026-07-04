@@ -30,6 +30,12 @@ COPY --from=build /app/dist ./dist
 COPY --from=build /app/docs ./docs
 COPY --from=build /app/examples ./examples
 
+# Drop root privileges: run the migration + server as the unprivileged `node`
+# user that ships with the base image, so a process compromise is not already
+# root inside the container.
+RUN chown -R node:node /app
+USER node
+
 EXPOSE 3000
 
 CMD ["sh", "-c", "npx prisma migrate deploy && node dist/src/server.js"]

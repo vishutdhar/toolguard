@@ -12,6 +12,12 @@ services:
         value: 0.0.0.0
       - key: PORT
         value: 10000
+      # WARNING: STORAGE_MODE=memory keeps ALL state (API keys, approvals, and
+      # the audit log) in process memory only. Render free-tier idles the
+      # service after ~15 min and every redeploy/restart wipes it: existing keys
+      # stop authenticating and the audit trail is lost. This is acceptable only
+      # for an ephemeral demo. For a durable deployment set STORAGE_MODE=prisma
+      # and provision DATABASE_URL (Postgres) + REDIS_URL. See finding M5.
       - key: STORAGE_MODE
         value: memory
       - key: ENABLE_SWAGGER

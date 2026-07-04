@@ -23,6 +23,7 @@ export interface CreateApiKeyInput {
   name: string;
   keyHash: string;
   keyPrefix: string;
+  scopes: string[];
 }
 
 export interface CreateAgentInput {

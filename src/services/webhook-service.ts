@@ -1,6 +1,55 @@
 import { createHmac } from "node:crypto";
 import { resolve4, resolve6 } from "node:dns/promises";
+// Use undici's own fetch together with its Agent. Node's GLOBAL fetch is backed
+// by a different (bundled) undici build, and passing an external Agent as its
+// dispatcher throws UND_ERR_INVALID_ARG. Keeping both from the same package
+// guarantees the dispatcher and fetch implementation are compatible.
+import { Agent, fetch as undiciFetch } from "undici";
 import type { DataStore } from "../domain/store";
+
+export interface PinnedTarget {
+  address: string;
+  family: 4 | 6;
+}
+
+// A DNS lookup shim that always returns the pre-validated IP, forcing every
+// connection attempt onto that exact address while the original hostname is
+// still used for TLS SNI and the Host header.
+function pinnedLookup(target: PinnedTarget) {
+  return (_hostname: string, options: { all?: boolean }, callback: (err: Error | null, address: unknown, family?: number) => void) => {
+    if (options?.all) {
+      callback(null, [{ address: target.address, family: target.family }]);
+    } else {
+      callback(null, target.address, target.family);
+    }
+  };
+}
+
+// Delivers a webhook POST to the given URL while pinning the outbound connection
+// to the pre-validated IP (closing DNS rebinding). Exported so the transport can
+// be exercised against a real loopback server in tests.
+export async function deliverWebhook(
+  url: string,
+  options: { headers: Record<string, string>; body: string; target: PinnedTarget; timeoutMs?: number },
+): Promise<number> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), options.timeoutMs ?? 10_000);
+  const dispatcher = new Agent({ connect: { lookup: pinnedLookup(options.target) as never } });
+  try {
+    const response = await undiciFetch(url, {
+      method: "POST",
+      headers: options.headers,
+      body: options.body,
+      signal: controller.signal,
+      redirect: "error",
+      dispatcher,
+    });
+    return response.status;
+  } finally {
+    clearTimeout(timeout);
+    await dispatcher.close().catch(() => {});
+  }
+}
 
 const BLOCKED_HOSTNAMES = new Set([
   "localhost",
@@ -78,22 +127,35 @@ function isPrivateIp(hostname: string): boolean {
   return false;
 }
 
-async function resolveHostnameIps(hostname: string): Promise<string[]> {
-  const ips: string[] = [];
+async function resolveHostnameIps(hostname: string): Promise<{ v4: string[]; v6: string[] }> {
+  let v4: string[] = [];
+  let v6: string[] = [];
   try {
-    ips.push(...(await resolve4(hostname)));
+    v4 = await resolve4(hostname);
   } catch {
     // No A records
   }
   try {
-    ips.push(...(await resolve6(hostname)));
+    v6 = await resolve6(hostname);
   } catch {
     // No AAAA records
   }
-  return ips;
+  return { v4, v6 };
 }
 
-export async function validateWebhookUrl(url: string, allowInsecure = false): Promise<void> {
+// Returns 4/6 when the host is an IP literal (already validated by isPrivateIp),
+// or null when it is a hostname that must be resolved.
+function ipLiteralFamily(hostname: string): 4 | 6 | null {
+  const bare = hostname.replace(/^\[|\]$/g, "");
+  if (/^\d+\.\d+\.\d+\.\d+$/.test(bare)) return 4;
+  if (bare.includes(":")) return 6;
+  return null;
+}
+
+// Validates a webhook URL and returns the exact IP the caller must connect to.
+// Callers MUST pin this address for the outbound request; re-resolving the
+// hostname at connect time reopens the DNS-rebinding hole this check closes (H3).
+export async function validateWebhookUrl(url: string, allowInsecure = false): Promise<PinnedTarget> {
   let parsed: URL;
   try {
     parsed = new URL(url);
@@ -115,14 +177,33 @@ export async function validateWebhookUrl(url: string, allowInsecure = false): Pr
     throw new Error("Webhook URL must not target private or reserved addresses");
   }
 
-  // Resolve DNS and validate all returned IPs — blocks rebinding attacks
-  // (e.g. 127.0.0.1.nip.io resolves to 127.0.0.1)
-  const resolvedIps = await resolveHostnameIps(hostname);
+  // IP-literal host: already validated above, pin it directly (no DNS involved).
+  const literalFamily = ipLiteralFamily(hostname);
+  if (literalFamily) {
+    return { address: hostname.replace(/^\[|\]$/g, ""), family: literalFamily };
+  }
+
+  // Resolve DNS and validate every returned IP — blocks rebinding via records
+  // that point at private space (e.g. 127.0.0.1.nip.io).
+  const { v4, v6 } = await resolveHostnameIps(hostname);
+  const resolvedIps = [...v4, ...v6];
+
+  // Fail closed: a host that resolves to nothing cannot be proven safe, and
+  // letting it through would hand an unvalidated name to the HTTP client to
+  // resolve however it likes.
+  if (resolvedIps.length === 0) {
+    throw new Error("Webhook URL host could not be resolved to any address");
+  }
+
   for (const ip of resolvedIps) {
     if (isPrivateIp(ip)) {
       throw new Error("Webhook URL must not resolve to private or reserved addresses");
     }
   }
+
+  // Pin the first validated address (prefer IPv4 when both exist).
+  const address = v4[0] ?? v6[0];
+  return { address, family: v4[0] ? 4 : 6 };
 }
 
 export class WebhookService {
@@ -147,8 +228,10 @@ export class WebhookService {
 
     await Promise.allSettled(
       matching.map(async (config) => {
-        // Re-validate at delivery time — DNS records may have changed since registration
-        await validateWebhookUrl(config.url, this.allowInsecureUrls);
+        // Re-validate at delivery time and pin the resulting IP so the outbound
+        // connection goes to the exact address we just checked. Without pinning,
+        // the HTTP client would re-resolve the hostname, reopening DNS rebinding.
+        const target = await validateWebhookUrl(config.url, this.allowInsecureUrls);
 
         const headers: Record<string, string> = { "Content-Type": "application/json" };
         if (config.secret) {
@@ -157,19 +240,7 @@ export class WebhookService {
             .digest("hex");
         }
 
-        const controller = new AbortController();
-        const timeout = setTimeout(() => controller.abort(), 10_000);
-        try {
-          await fetch(config.url, {
-            method: "POST",
-            headers,
-            body,
-            signal: controller.signal,
-            redirect: "error",
-          });
-        } finally {
-          clearTimeout(timeout);
-        }
+        await deliverWebhook(config.url, { headers, body, target });
       }),
     );
   }

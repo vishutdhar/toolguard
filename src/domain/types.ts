@@ -18,6 +18,10 @@ export interface ApiKeyRecord {
   name: string;
   keyHash: string;
   keyPrefix: string;
+  // Capabilities this key may exercise. ["*"] grants full access. A specific
+  // capability (e.g. "approvals:resolve") gates a sensitive route so that an
+  // agent-runtime key can be issued without it (separation of duties).
+  scopes: string[];
   lastUsedAt: Date | null;
   createdAt: Date;
   revokedAt: Date | null;

@@ -50,6 +50,7 @@ model ApiKey {
   name           String
   keyHash        String        @unique
   keyPrefix      String        @unique
+  scopes         Json          @default("[\"*\"]")
   lastUsedAt     DateTime?
   createdAt      DateTime      @default(now())
   revokedAt      DateTime?

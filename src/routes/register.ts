@@ -18,6 +18,7 @@ import {
   assertSelfSignupAllowed,
   decisionSchema,
   metadataSchema,
+  requireCapability,
   requireOrgAccess,
   riskLevelSchema,
   stringArraySchema,
@@ -256,6 +257,10 @@ export async function registerRoutes(
         body: z.object({
           orgId: z.string().min(1),
           name: z.string().min(1),
+          // Capabilities the new key may exercise. Omit or ["*"] for full access;
+          // pass a restricted list (e.g. ["tool:authorize"]) to mint a
+          // least-privilege agent-runtime key that cannot resolve approvals.
+          scopes: z.array(z.string().min(1)).optional(),
         }),
         response: {
           201: z.object({
@@ -268,7 +273,11 @@ export async function registerRoutes(
     async (request, reply) => {
       const auth = await requireAuth(request.headers.authorization);
       requireOrgAccess(auth, request.body.orgId);
-      const { apiKey, rawKey } = await services.authService.createApiKey(auth.organization.id, request.body.name);
+      const { apiKey, rawKey } = await services.authService.createApiKey(
+        auth.organization.id,
+        request.body.name,
+        request.body.scopes ?? ["*"],
+      );
 
       return reply.status(201).send({
         apiKey: presentApiKey(apiKey),
@@ -798,6 +807,10 @@ export async function registerRoutes(
     },
     async (request) => {
       const auth = await requireAuth(request.headers.authorization);
+      // Resolving an approval is the human-in-the-loop control and must be
+      // gated by a distinct capability, so an agent-runtime key cannot approve
+      // the actions it itself requested (separation of duties).
+      requireCapability(auth, "approvals:resolve");
       const approval = await services.approvalService.get(request.params.approvalId);
       requireOrgAccess(auth, approval.organizationId);
       const resolvedBy = `api_key:${auth.apiKey.keyPrefix}`;

@@ -164,11 +164,30 @@ export class ApprovalService {
   }
 
   async consume(approvalId: string, invocationId: string | null): Promise<ApprovalRequest> {
-    const updated = await this.store.updateApprovalRequest(approvalId, {
-      status: "consumed",
-      consumedAt: this.now(),
-      consumedByInvocationId: invocationId,
-    }, "approved");
+    let updated: ApprovalRequest;
+    try {
+      updated = await this.store.updateApprovalRequest(approvalId, {
+        status: "consumed",
+        consumedAt: this.now(),
+        consumedByInvocationId: invocationId,
+      }, "approved");
+    } catch (err) {
+      // Lost a race to another request. If the winner consumed this approval for
+      // the SAME invocation, treat it as an idempotent success rather than a 409
+      // (L1). Any other status change is a genuine conflict.
+      if (err instanceof AppError && err.code === "APPROVAL_STATUS_CHANGED") {
+        const current = await this.store.getApprovalRequest(approvalId);
+        if (
+          current &&
+          current.status === "consumed" &&
+          invocationId !== null &&
+          current.consumedByInvocationId === invocationId
+        ) {
+          return current;
+        }
+      }
+      throw err;
+    }
 
     await this.auditService.log({
       organizationId: updated.organizationId,
@@ -203,6 +222,12 @@ export class ApprovalService {
 
     if (approval.status !== "approved") {
       throw new AppError("Approval is not approved", 409, "APPROVAL_NOT_APPROVED");
+    }
+
+    // The TTL bounds the whole authorization, not just the human-response window.
+    // An approved-but-expired approval must not be consumable (M3).
+    if (approval.expiresAt && approval.expiresAt.getTime() <= this.now().getTime()) {
+      throw new AppError("Approval has expired", 409, "APPROVAL_EXPIRED");
     }
 
     return approval;

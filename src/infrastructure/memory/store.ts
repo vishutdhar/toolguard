@@ -1,4 +1,5 @@
 import { AppError, notFound } from "../../lib/errors";
+import { AUDIT_EVENTS_FOR_RUN_LIMIT } from "../../domain/constants";
 import { generateId } from "../../lib/id";
 import { toJsonObject } from "../../lib/json";
 import type {
@@ -35,6 +36,15 @@ import type {
   UpdateRunInput,
   UpsertUsageCounterInput,
 } from "../../domain/store";
+
+// Tiebreaker for rows sharing a createdAt timestamp, so cursor pagination stays
+// stable and deterministic (mirrors the [createdAt desc, id desc] order used by
+// the Prisma store).
+function compareIdDesc(a: string, b: string): number {
+  if (a < b) return 1;
+  if (a > b) return -1;
+  return 0;
+}
 
 export class MemoryDataStore implements DataStore {
   private readonly organizations = new Map<string, Organization>();
@@ -73,17 +83,18 @@ export class MemoryDataStore implements DataStore {
       name: input.name,
       keyHash: input.keyHash,
       keyPrefix: input.keyPrefix,
+      scopes: [...input.scopes],
       lastUsedAt: null,
       createdAt: new Date(),
       revokedAt: null,
     };
     this.apiKeys.set(apiKey.id, apiKey);
-    return { ...apiKey };
+    return { ...apiKey, scopes: [...apiKey.scopes] };
   }
 
   async findApiKeyByHash(keyHash: string): Promise<ApiKeyRecord | null> {
     const record = [...this.apiKeys.values()].find((item) => item.keyHash === keyHash) ?? null;
-    return record ? { ...record } : null;
+    return record ? { ...record, scopes: [...record.scopes] } : null;
   }
 
   async updateApiKeyLastUsed(id: string, lastUsedAt: Date): Promise<void> {
@@ -293,6 +304,7 @@ export class MemoryDataStore implements DataStore {
     return [...this.auditEvents.values()]
       .filter((event) => event.runId === runId)
       .sort((left, right) => left.createdAt.getTime() - right.createdAt.getTime())
+      .slice(0, AUDIT_EVENTS_FOR_RUN_LIMIT)
       .map((event) => ({ ...event, payload: { ...event.payload } }));
   }
 
@@ -355,7 +367,7 @@ export class MemoryDataStore implements DataStore {
     const limit = Math.min(options?.limit ?? 50, 100);
     let items = [...this.approvals.values()]
       .filter((a) => a.organizationId === organizationId)
-      .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+      .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime() || compareIdDesc(a.id, b.id));
 
     if (options?.status) {
       items = items.filter((a) => a.status === options.status);
@@ -382,7 +394,7 @@ export class MemoryDataStore implements DataStore {
     const limit = Math.min(options?.limit ?? 50, 100);
     let items = [...this.auditEvents.values()]
       .filter((e) => e.organizationId === organizationId)
-      .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+      .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime() || compareIdDesc(a.id, b.id));
 
     if (options?.cursor) {
       const cursorIndex = items.findIndex((e) => e.id === options.cursor);
