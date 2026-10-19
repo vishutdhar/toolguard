@@ -15,6 +15,7 @@ import { type WebhookService, validateWebhookUrl } from "../services/webhook-ser
 import type { DataStore } from "../domain/store";
 import { AppError, assertApp, notFound } from "../lib/errors";
 import {
+  assertScopesWithinCaller,
   assertSelfSignupAllowed,
   decisionSchema,
   metadataSchema,
@@ -257,9 +258,11 @@ export async function registerRoutes(
         body: z.object({
           orgId: z.string().min(1),
           name: z.string().min(1),
-          // Capabilities the new key may exercise. Omit or ["*"] for full access;
-          // pass a restricted list (e.g. ["tool:authorize"]) to mint a
-          // least-privilege agent-runtime key that cannot resolve approvals.
+          // Capabilities the new key may exercise. Omit to inherit the calling
+          // key's scopes; pass a restricted list (e.g. ["tool:authorize"]) to
+          // mint a least-privilege agent-runtime key that cannot resolve
+          // approvals. The list must be a non-empty subset of the caller's
+          // scopes, and the caller needs the api_keys:create capability.
           scopes: z.array(z.string().min(1)).optional(),
         }),
         response: {
@@ -273,10 +276,15 @@ export async function registerRoutes(
     async (request, reply) => {
       const auth = await requireAuth(request.headers.authorization);
       requireOrgAccess(auth, request.body.orgId);
+      requireCapability(auth, "api_keys:create");
+      // Omitted scopes inherit the caller's scopes, so a restricted key can
+      // never mint a broader key by leaving the field out.
+      const scopes = request.body.scopes ?? auth.apiKey.scopes ?? [];
+      assertScopesWithinCaller(auth, scopes);
       const { apiKey, rawKey } = await services.authService.createApiKey(
         auth.organization.id,
         request.body.name,
-        request.body.scopes ?? ["*"],
+        scopes,
       );
 
       return reply.status(201).send({
