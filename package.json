@@ -42,6 +42,9 @@
     "url": "https://github.com/vishutdhar/toolguard/issues"
   },
   "license": "MIT",
+  "engines": {
+    "node": ">=22.19.0"
+  },
   "type": "commonjs",
   "workspaces": [
     "packages/*"

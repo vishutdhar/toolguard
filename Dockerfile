@@ -1,4 +1,4 @@
-FROM node:20-alpine AS build
+FROM node:22-alpine AS build
 
 WORKDIR /app
 ENV PRISMA_ENGINES_CHECKSUM_IGNORE_MISSING=1
@@ -14,7 +14,7 @@ COPY docs ./docs
 COPY tsconfig.json ./tsconfig.json
 RUN npm run build
 
-FROM node:20-alpine AS runtime
+FROM node:22-alpine AS runtime
 
 WORKDIR /app
 
