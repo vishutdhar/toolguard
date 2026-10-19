@@ -300,6 +300,7 @@ async function main(): Promise<void> {
     "approval.resolved",
     "tool.authorization.requested",
     "policy.evaluated",
+    "approval.consumed",
     "tool.authorized",
     "tool.authorization.requested",
     "policy.evaluated",
@@ -309,7 +310,7 @@ async function main(): Promise<void> {
 
   assert(
     replayEventTypes.length === expectedReplaySequence.length,
-    `Replay length mismatch: expected ${expectedReplaySequence.length}, received ${replayEventTypes.length}`,
+    `Replay length mismatch: expected ${expectedReplaySequence.length}, received ${replayEventTypes.length}: ${JSON.stringify(replayEventTypes)}`,
   );
   assert(
     JSON.stringify(replayEventTypes) === JSON.stringify(expectedReplaySequence),
