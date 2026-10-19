@@ -2,7 +2,67 @@
 
 **Authorize AI tool calls before they execute.**
 
+> **Status:** Open-source reference implementation. Not actively maintained;
+> no hosted demo. The architecture, code, and docs are intended as a working
+> reference for anyone building agent permissions infrastructure. Forks and
+> adopters welcome.
+
 ToolGuard is an open-source permissions API that sits between your AI agents and the tools they call. Define policies, enforce human approvals, track every action.
+
+## What's worth copying
+
+Even if you don't run ToolGuard end-to-end, several patterns inside it are
+uncommon in public OSS and worth lifting into your own agent infrastructure.
+
+- **Atomic compare-and-swap on approval resolution**
+  ([`src/infrastructure/prisma/store.ts:415-440`](src/infrastructure/prisma/store.ts))
+  — `updateApprovalRequest` accepts an `expectedStatus` and uses Prisma's
+  `updateMany` with a `where: { id, status: expectedStatus }` clause, throwing
+  a `409 APPROVAL_STATUS_CHANGED` if the row moved out from under you. This
+  closes the TOCTOU race that most agent-approval systems quietly have when
+  two reviewers click "approve" simultaneously. Concurrent regression test in
+  [`test/integration/store-contract.test.ts`](test/integration/store-contract.test.ts).
+
+- **DNS-rebind-aware webhook URL validation**
+  ([`src/services/webhook-service.ts:90-118`](src/services/webhook-service.ts))
+  — `validateWebhookUrl` blocks reserved hostnames *and* resolves the
+  hostname and rejects any IP in private/reserved ranges. Re-validates at
+  delivery time ([`webhook-service.ts:142-143`](src/services/webhook-service.ts))
+  to defend against rebinding between registration and fetch. (Caveat: there's
+  still a small validate→fetch window — see `TASKS.md` "Deferred" for the
+  socket-pinning close.)
+
+- **Server-authoritative tool catalog**
+  ([`src/services/authorization-service.ts:73-108`](src/services/authorization-service.ts))
+  — `tool.action`, `tool.resource`, `tool.riskLevel`, and `estimatedCostUsd`
+  are loaded from the server-side catalog and never trusted from the caller.
+  This is the difference between a permission system and a suggestion box;
+  if the agent's HTTP client could declare "this is low-risk", policies are
+  meaningless.
+
+- **Decision precedence + environment-conditional defaults**
+  ([`src/services/policy-service.ts:7-8`](src/services/policy-service.ts))
+  — Decisions are ordered `deny > require_approval > allow`, and when no
+  rule matches, the fallback is environment-aware: `DEV_DEFAULT_DECISION`
+  defaults to `allow`, `PROD_DEFAULT_DECISION` defaults to `require_approval`.
+  Closes the "forgot to write a prod policy → agent runs free" failure mode.
+
+- **Storage adapter parity via contract tests**
+  ([`test/integration/store-contract.test.ts`](test/integration/store-contract.test.ts))
+  — The same test suite runs against both the Prisma store and the in-memory
+  store. Useful pattern any time you want a fast in-process test backend
+  without it drifting from production behavior.
+
+- **HMAC-signed webhook contract**
+  ([`src/services/webhook-service.ts:145-150`](src/services/webhook-service.ts))
+  — `X-ToolGuard-Signature` is a SHA-256 HMAC over the raw request body using
+  the per-webhook secret. Standard pattern, but worth copying because it's
+  the minimum bar for a webhook receiver to trust the payload — and a lot of
+  agent projects skip it.
+
+If you only want one of these, the atomic CAS pattern and the
+server-authoritative catalog are the two that fail silently most often in
+hand-rolled implementations.
 
 ```
 Agent calls stripe.refund($1,500)
@@ -39,6 +99,13 @@ ToolGuard adds one API call before every tool execution. Your agent code barely 
 - **Environment enforcement** — production policies can't be bypassed by spoofing environments
 - **Server-side cost tracking** — estimated costs stored in the tool catalog, not trusted from callers
 - **Atomic approval resolution** — concurrent approvals can't double-resolve
+
+## Self-hosting
+
+There is no hosted demo. Run locally via the [Quick Start](#quick-start)
+below, or deploy your own instance. A Render Blueprint
+([`render.yaml`](render.yaml), [`docs/DEPLOY_RENDER.md`](docs/DEPLOY_RENDER.md))
+is included as a starting point.
 
 ## Quick Start
 
