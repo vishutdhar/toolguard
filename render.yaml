@@ -1,82 +1,44 @@
-# ToolGuard - Render Blueprint
+# ToolGuard free demo Blueprint (the default render.yaml)
 #
-# One-click deploy: https://render.com/deploy?repo=https://github.com/vishutdhar/toolguard
-#
-# Provisions:
-#   - toolguard-db      Managed Postgres (migrations run on every deploy)
-#   - toolguard-redis   Managed Redis/KeyValue (BullMQ backing store)
-#   - toolguard-api     Fastify API (HTTPS + /healthz health check)
-#   - toolguard-worker  BullMQ worker (approval expiry jobs)
-#
-# Plan sizing is set to the lowest paid/free tiers appropriate for a public
-# demo instance. Resize before taking real production traffic. See
-# docs/DEPLOY_RENDER.md for the walkthrough and environment notes.
-
-databases:
-  - name: toolguard-db
-    databaseName: toolguard
-    user: toolguard
-    plan: basic-256mb
+# One free web service with in-memory storage. No database, Redis, or worker.
+# For the paid Postgres + Redis + worker setup, use render.prisma.yaml.
+# See docs/DEPLOY_RENDER.md.
 
 services:
-  - type: redis
-    name: toolguard-redis
-    plan: free
-    ipAllowList: []
-    maxmemoryPolicy: noeviction
-
   - type: web
     name: toolguard-api
-    runtime: docker
-    plan: starter
-    healthCheckPath: /healthz
-    autoDeploy: true
+    runtime: node
+    plan: free
+    buildCommand: npm ci && npx prisma generate && npm run build
+    startCommand: node dist/src/server.js
     envVars:
       - key: NODE_ENV
         value: production
       - key: HOST
         value: 0.0.0.0
-      - key: LOG_LEVEL
-        value: info
+      - key: PORT
+        value: 10000
+      # WARNING: STORAGE_MODE=memory keeps ALL state (API keys, approvals, and
+      # the audit log) in process memory only. Render free-tier idles the
+      # service after ~15 min and every redeploy/restart wipes it: existing keys
+      # stop authenticating and the audit trail is lost. This is acceptable only
+      # for an ephemeral demo. For a durable deployment set STORAGE_MODE=prisma
+      # and provision DATABASE_URL (Postgres) + REDIS_URL. See finding M5.
       - key: STORAGE_MODE
-        value: prisma
+        value: memory
       - key: ENABLE_SWAGGER
-        value: "true"
+        value: "false"
       - key: ALLOW_SELF_SIGNUP
         value: "true"
+      - key: APPROVAL_TTL_MINUTES
+        value: "60"
       - key: BULLMQ_ENABLED
-        value: "true"
-      - key: DATABASE_URL
-        fromDatabase:
-          name: toolguard-db
-          property: connectionString
-      - key: REDIS_URL
-        fromService:
-          type: redis
-          name: toolguard-redis
-          property: connectionString
-
-  - type: worker
-    name: toolguard-worker
-    runtime: docker
-    plan: starter
-    autoDeploy: true
-    dockerCommand: sh -c "npx prisma migrate deploy && node dist/src/worker.js"
-    envVars:
-      - key: NODE_ENV
-        value: production
-      - key: LOG_LEVEL
-        value: info
-      - key: STORAGE_MODE
-        value: prisma
-      - key: BULLMQ_ENABLED
-        value: "true"
-      - key: DATABASE_URL
-        fromDatabase:
-          name: toolguard-db
-          property: connectionString
-      - key: REDIS_URL
-        fromService:
-          type: redis
-          name: toolguard-redis
-          property: connectionString
+        value: "false"
+      - key: DEV_DEFAULT_DECISION
+        value: allow
+      - key: PROD_DEFAULT_DECISION
+        value: require_approval
+      # Comma-separated list of origins allowed to call the API from a browser,
+      # for example the dashboard's Vercel URL. Set it in the Render dashboard.
+      - key: CORS_ALLOWED_ORIGINS
+        sync: false

@@ -8,6 +8,21 @@ const decisionPriority: Record<Decision, number> = {
   deny: 3,
 };
 
+// Environments that are explicitly recognized as non-production. ANY other
+// label (including "prod", "staging", "production" with different casing, or an
+// unknown string) is treated as production so the safe-by-default posture never
+// silently degrades to the permissive dev default (H1).
+const DEV_ENVIRONMENTS = new Set(["development", "dev", "local", "test"]);
+
+export function normalizeEnvironment(value: unknown): string {
+  return String(value ?? "").trim().toLowerCase();
+}
+
+// A rule can definitively match, definitively not match, or be impossible to
+// evaluate (e.g. a numeric operator against a non-numeric value). The last case
+// must fail safe rather than silently skipping a protective rule (M2).
+type RuleMatch = "match" | "no-match" | "indeterminate";
+
 export interface PolicyEvaluationRequest {
   orgId: string;
   agentId: string;
@@ -59,48 +74,63 @@ function numericValue(value: unknown): number | null {
   return null;
 }
 
-export function matchRule(rule: PolicyRule, candidate: Record<string, unknown>): boolean {
-  return Object.entries(rule.if).every(([path, expected]) => {
+function evaluateRule(rule: PolicyRule, candidate: Record<string, unknown>): RuleMatch {
+  let indeterminate = false;
+
+  for (const [path, expected] of Object.entries(rule.if)) {
     const actual = getByPath(candidate, path);
 
     if (!isPolicyCondition(expected)) {
-      return equalsValue(actual, expected);
+      if (!equalsValue(actual, expected)) {
+        return "no-match";
+      }
+      continue;
     }
 
     if (expected.equals !== undefined && !equalsValue(actual, expected.equals)) {
-      return false;
+      return "no-match";
     }
 
     if (expected.in !== undefined) {
       if (Array.isArray(actual)) {
         if (!actual.some((item) => expected.in?.some((allowed) => equalsValue(item, allowed)))) {
-          return false;
+          return "no-match";
         }
       } else if (!expected.in.some((allowed) => equalsValue(actual, allowed))) {
-        return false;
+        return "no-match";
       }
     }
 
-    const actualNumeric = numericValue(actual);
-    if (expected.gt !== undefined && (actualNumeric === null || actualNumeric <= expected.gt)) {
-      return false;
-    }
-    if (expected.gte !== undefined && (actualNumeric === null || actualNumeric < expected.gte)) {
-      return false;
-    }
-    if (expected.lt !== undefined && (actualNumeric === null || actualNumeric >= expected.lt)) {
-      return false;
-    }
-    if (expected.lte !== undefined && (actualNumeric === null || actualNumeric > expected.lte)) {
-      return false;
-    }
+    const hasNumericOperator =
+      expected.gt !== undefined ||
+      expected.gte !== undefined ||
+      expected.lt !== undefined ||
+      expected.lte !== undefined;
 
-    return true;
-  });
+    if (hasNumericOperator) {
+      const actualNumeric = numericValue(actual);
+      if (actualNumeric === null) {
+        // Cannot evaluate the comparison — mark indeterminate but keep checking
+        // the remaining conditions, which may still definitively rule this out.
+        indeterminate = true;
+      } else {
+        if (expected.gt !== undefined && actualNumeric <= expected.gt) return "no-match";
+        if (expected.gte !== undefined && actualNumeric < expected.gte) return "no-match";
+        if (expected.lt !== undefined && actualNumeric >= expected.lt) return "no-match";
+        if (expected.lte !== undefined && actualNumeric > expected.lte) return "no-match";
+      }
+    }
+  }
+
+  return indeterminate ? "indeterminate" : "match";
+}
+
+export function matchRule(rule: PolicyRule, candidate: Record<string, unknown>): boolean {
+  return evaluateRule(rule, candidate) === "match";
 }
 
 function normalizeCandidate(input: PolicyEvaluationRequest): Record<string, unknown> {
-  const environment = String(input.context.environment ?? "development");
+  const environment = normalizeEnvironment(input.context.environment ?? "development");
 
   return {
     orgId: input.orgId,
@@ -131,14 +161,34 @@ export function evaluatePolicies(
 
   policies.forEach(({ version }) => {
     version.rulesJson.forEach((rule, ruleIndex) => {
-      if (matchRule(rule, candidate)) {
+      const outcome = evaluateRule(rule, candidate);
+      if (outcome === "no-match") {
+        return;
+      }
+
+      if (outcome === "indeterminate") {
+        // A rule that cannot be fully evaluated may only fire if it is
+        // protective (deny / require_approval). An allow rule must never match
+        // on unevaluable input, and a protective rule must never be skipped.
+        if (rule.then.decision === "allow") {
+          return;
+        }
+
         matches.push({
           decision: rule.then.decision,
           policyVersionId: version.id,
           ruleIndex,
-          reasonCodes: rule.then.reasonCodes ?? [],
+          reasonCodes: [...(rule.then.reasonCodes ?? []), "MALFORMED_NUMERIC_OPERAND"],
         });
+        return;
       }
+
+      matches.push({
+        decision: rule.then.decision,
+        policyVersionId: version.id,
+        ruleIndex,
+        reasonCodes: rule.then.reasonCodes ?? [],
+      });
     });
   });
 
@@ -175,11 +225,13 @@ export class PolicyService {
   ) {}
 
   getDefaultDecision(environment: string): Decision {
-    return environment === "production" ? this.defaultProdDecision : this.defaultDevDecision;
+    return DEV_ENVIRONMENTS.has(normalizeEnvironment(environment))
+      ? this.defaultDevDecision
+      : this.defaultProdDecision;
   }
 
   evaluate(policies: LatestPolicyVersion[], input: PolicyEvaluationRequest): PolicyEvaluationResult {
-    const environment = String(input.context.environment ?? "development");
+    const environment = normalizeEnvironment(input.context.environment ?? "development");
     return evaluatePolicies(policies, input, this.getDefaultDecision(environment));
   }
 }

@@ -111,6 +111,8 @@ export function presentApproval(approval: ApprovalRequest): Record<string, unkno
     resolvedBy: approval.resolvedBy,
     resolvedAt: approval.resolvedAt?.toISOString() ?? null,
     expiresAt: approval.expiresAt?.toISOString() ?? null,
+    consumedAt: approval.consumedAt?.toISOString() ?? null,
+    consumedByInvocationId: approval.consumedByInvocationId,
     createdAt: approval.createdAt.toISOString(),
   };
 }

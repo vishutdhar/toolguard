@@ -11,13 +11,18 @@ export interface AuthContext {
 export class AuthService {
   constructor(private readonly store: DataStore) {}
 
-  async createApiKey(organizationId: string, name: string): Promise<{ apiKey: ApiKeyRecord; rawKey: string }> {
+  async createApiKey(
+    organizationId: string,
+    name: string,
+    scopes: string[] = ["*"],
+  ): Promise<{ apiKey: ApiKeyRecord; rawKey: string }> {
     const rawKey = generateApiKeyValue();
     const apiKey = await this.store.createApiKey({
       organizationId,
       name,
       keyHash: hashApiKey(rawKey),
       keyPrefix: getApiKeyPrefix(rawKey),
+      scopes: scopes.length > 0 ? scopes : ["*"],
     });
 
     return { apiKey, rawKey };

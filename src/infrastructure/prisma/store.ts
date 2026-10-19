@@ -1,5 +1,6 @@
 import { PrismaClient, Prisma } from "@prisma/client";
 import { AppError } from "../../lib/errors";
+import { AUDIT_EVENTS_FOR_RUN_LIMIT } from "../../domain/constants";
 import { toJsonObject, type JsonObject } from "../../lib/json";
 import type {
   Agent,
@@ -68,11 +69,12 @@ function mapApiKey(record: {
   name: string;
   keyHash: string;
   keyPrefix: string;
+  scopes: Prisma.JsonValue;
   lastUsedAt: Date | null;
   createdAt: Date;
   revokedAt: Date | null;
 }): ApiKeyRecord {
-  return { ...record };
+  return { ...record, scopes: stringArray(record.scopes) };
 }
 
 function mapAgent(record: {
@@ -170,6 +172,8 @@ function mapApproval(record: {
   resolvedBy: string | null;
   resolvedAt: Date | null;
   expiresAt: Date | null;
+  consumedAt: Date | null;
+  consumedByInvocationId: string | null;
   createdAt: Date;
 }): ApprovalRequest {
   return {
@@ -262,7 +266,10 @@ export class PrismaDataStore implements DataStore {
   async createApiKey(input: CreateApiKeyInput): Promise<ApiKeyRecord> {
     return mapApiKey(
       await this.client.apiKey.create({
-        data: input,
+        data: {
+          ...input,
+          scopes: inputJsonValue(input.scopes),
+        },
       }),
     );
   }
@@ -454,7 +461,8 @@ export class PrismaDataStore implements DataStore {
   async listAuditEventsForRun(runId: string): Promise<AuditEvent[]> {
     const auditEvents = await this.client.auditEvent.findMany({
       where: { runId },
-      orderBy: { createdAt: "asc" },
+      orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+      take: AUDIT_EVENTS_FOR_RUN_LIMIT,
     });
     return auditEvents.map(mapAuditEvent);
   }
@@ -522,7 +530,7 @@ export class PrismaDataStore implements DataStore {
 
     const records = await this.client.approvalRequest.findMany({
       where,
-      orderBy: { createdAt: "desc" },
+      orderBy: [{ createdAt: "desc" }, { id: "desc" }],
       take: limit,
       ...(options?.cursor ? { skip: 1, cursor: { id: options.cursor } } : {}),
     });
@@ -541,7 +549,7 @@ export class PrismaDataStore implements DataStore {
 
     const records = await this.client.auditEvent.findMany({
       where: { organizationId },
-      orderBy: { createdAt: "desc" },
+      orderBy: [{ createdAt: "desc" }, { id: "desc" }],
       take: limit,
       ...(options?.cursor ? { skip: 1, cursor: { id: options.cursor } } : {}),
     });

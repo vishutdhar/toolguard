@@ -8,6 +8,13 @@ vi.mock("node:dns/promises", () => ({
   resolve6: vi.fn().mockRejectedValue(Object.assign(new Error("ENODATA"), { code: "ENODATA" })),
 }));
 
+// Stub undici's fetch (the one webhook delivery uses) so delivery tests never
+// make a real network call, while keeping the real Agent for the pinning shim.
+vi.mock("undici", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("undici")>();
+  return { ...actual, fetch: vi.fn().mockResolvedValue(new Response("ok", { status: 200 })) };
+});
+
 describe("ToolGuard API integration", () => {
   let app: Awaited<ReturnType<typeof buildTestApp>>["app"];
   let seed: Awaited<ReturnType<typeof buildTestApp>>["seed"];
@@ -1014,8 +1021,11 @@ describe("ToolGuard API integration", () => {
     });
     expect(createResp.statusCode).toBe(201);
 
-    // Spy on fetch to verify delivery-time validation doesn't reject the HTTP URL
-    const fetchSpy = vi.spyOn(global, "fetch").mockResolvedValue(new Response("ok"));
+    // Verify delivery-time validation doesn't reject the HTTP URL: undici's
+    // fetch (used by webhook delivery) is stubbed at the module level above.
+    const { fetch: undiciFetch } = await import("undici");
+    const fetchMock = vi.mocked(undiciFetch);
+    fetchMock.mockClear();
 
     try {
       // Create session + trigger approval (fires webhook)
@@ -1053,13 +1063,13 @@ describe("ToolGuard API integration", () => {
       // Give the fire-and-forget webhook dispatch a tick to run
       await new Promise((r) => setTimeout(r, 50));
 
-      // Verify fetch was called with the HTTP URL (not silently dropped)
-      const httpCalls = fetchSpy.mock.calls.filter(
+      // Verify delivery was attempted with the HTTP URL (not silently dropped)
+      const httpCalls = fetchMock.mock.calls.filter(
         ([url]) => typeof url === "string" && url.startsWith("http://example.com/hook"),
       );
       expect(httpCalls.length).toBeGreaterThanOrEqual(1);
     } finally {
-      fetchSpy.mockRestore();
+      fetchMock.mockClear();
     }
   });
 

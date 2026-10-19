@@ -2,7 +2,7 @@ import type { JsonObject, JsonValue } from "../lib/json";
 
 export type Decision = "allow" | "deny" | "require_approval";
 export type RiskLevel = "low" | "medium" | "high";
-export type ApprovalStatus = "pending" | "approved" | "rejected" | "expired";
+export type ApprovalStatus = "pending" | "approved" | "rejected" | "expired" | "consumed";
 export type RunStatus = "started" | "completed" | "failed";
 
 export interface Organization {
@@ -18,6 +18,10 @@ export interface ApiKeyRecord {
   name: string;
   keyHash: string;
   keyPrefix: string;
+  // Capabilities this key may exercise. ["*"] grants full access. A specific
+  // capability (e.g. "approvals:resolve") gates a sensitive route so that an
+  // agent-runtime key can be issued without it (separation of duties).
+  scopes: string[];
   lastUsedAt: Date | null;
   createdAt: Date;
   revokedAt: Date | null;
@@ -110,6 +114,8 @@ export interface ApprovalRequest {
   resolvedBy: string | null;
   resolvedAt: Date | null;
   expiresAt: Date | null;
+  consumedAt: Date | null;
+  consumedByInvocationId: string | null;
   createdAt: Date;
 }
 

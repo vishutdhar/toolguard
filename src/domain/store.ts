@@ -23,6 +23,7 @@ export interface CreateApiKeyInput {
   name: string;
   keyHash: string;
   keyPrefix: string;
+  scopes: string[];
 }
 
 export interface CreateAgentInput {
@@ -84,6 +85,8 @@ export interface UpdateApprovalRequestInput {
   status: ApprovalRequest["status"];
   resolvedBy?: string | null;
   resolvedAt?: Date | null;
+  consumedAt?: Date | null;
+  consumedByInvocationId?: string | null;
 }
 
 export interface CreateAuditEventInput {

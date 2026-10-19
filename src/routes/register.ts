@@ -15,9 +15,11 @@ import { type WebhookService, validateWebhookUrl } from "../services/webhook-ser
 import type { DataStore } from "../domain/store";
 import { AppError, assertApp, notFound } from "../lib/errors";
 import {
+  assertScopesWithinCaller,
   assertSelfSignupAllowed,
   decisionSchema,
   metadataSchema,
+  requireCapability,
   requireOrgAccess,
   riskLevelSchema,
   stringArraySchema,
@@ -76,7 +78,7 @@ const decisionResponseSchema = z.object({
   policyVersionId: z.string().nullable(),
   matchedRuleIndex: z.number().int().nullable(),
   approvalId: z.string().nullable(),
-  approvalStatus: z.enum(["pending", "approved", "rejected", "expired"]).nullable(),
+  approvalStatus: z.enum(["pending", "approved", "rejected", "expired", "consumed"]).nullable(),
   limits: z.object({
     remainingActionsToday: z.number(),
     remainingBudgetUsd: z.number(),
@@ -256,6 +258,12 @@ export async function registerRoutes(
         body: z.object({
           orgId: z.string().min(1),
           name: z.string().min(1),
+          // Capabilities the new key may exercise. Omit to inherit the calling
+          // key's scopes; pass a restricted list (e.g. ["tool:authorize"]) to
+          // mint a least-privilege agent-runtime key that cannot resolve
+          // approvals. The list must be a non-empty subset of the caller's
+          // scopes, and the caller needs the api_keys:create capability.
+          scopes: z.array(z.string().min(1)).optional(),
         }),
         response: {
           201: z.object({
@@ -268,7 +276,16 @@ export async function registerRoutes(
     async (request, reply) => {
       const auth = await requireAuth(request.headers.authorization);
       requireOrgAccess(auth, request.body.orgId);
-      const { apiKey, rawKey } = await services.authService.createApiKey(auth.organization.id, request.body.name);
+      requireCapability(auth, "api_keys:create");
+      // Omitted scopes inherit the caller's scopes, so a restricted key can
+      // never mint a broader key by leaving the field out.
+      const scopes = request.body.scopes ?? auth.apiKey.scopes ?? [];
+      assertScopesWithinCaller(auth, scopes);
+      const { apiKey, rawKey } = await services.authService.createApiKey(
+        auth.organization.id,
+        request.body.name,
+        scopes,
+      );
 
       return reply.status(201).send({
         apiKey: presentApiKey(apiKey),
@@ -684,6 +701,7 @@ export async function registerRoutes(
           sessionId: z.string().min(1),
           runId: z.string().optional().nullable(),
           approvalId: z.string().optional().nullable(),
+          invocationId: z.string().optional().nullable(),
           tool: toolInputSchema,
           context: metadataSchema,
           payloadSummary: metadataSchema,
@@ -703,6 +721,7 @@ export async function registerRoutes(
         sessionId: request.body.sessionId,
         runId: request.body.runId ?? null,
         approvalId: request.body.approvalId ?? null,
+        invocationId: request.body.invocationId ?? null,
         tool: request.body.tool,
         context: request.body.context,
         payloadSummary: request.body.payloadSummary,
@@ -796,6 +815,10 @@ export async function registerRoutes(
     },
     async (request) => {
       const auth = await requireAuth(request.headers.authorization);
+      // Resolving an approval is the human-in-the-loop control and must be
+      // gated by a distinct capability, so an agent-runtime key cannot approve
+      // the actions it itself requested (separation of duties).
+      requireCapability(auth, "approvals:resolve");
       const approval = await services.approvalService.get(request.params.approvalId);
       requireOrgAccess(auth, approval.organizationId);
       const resolvedBy = `api_key:${auth.apiKey.keyPrefix}`;
@@ -952,7 +975,7 @@ export async function registerRoutes(
         security: [{ bearerAuth: [] }],
         summary: "List approval requests for the authenticated organization",
         querystring: z.object({
-          status: z.enum(["pending", "approved", "rejected", "expired"]).optional(),
+          status: z.enum(["pending", "approved", "rejected", "expired", "consumed"]).optional(),
           cursor: z.string().optional(),
           limit: z.coerce.number().int().min(1).max(100).optional(),
         }),

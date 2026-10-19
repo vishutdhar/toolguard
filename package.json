@@ -42,6 +42,9 @@
     "url": "https://github.com/vishutdhar/toolguard/issues"
   },
   "license": "MIT",
+  "engines": {
+    "node": ">=22.19.0"
+  },
   "type": "commonjs",
   "workspaces": [
     "packages/*"
@@ -70,6 +73,7 @@
     "fastify-type-provider-zod": "^6.1.0",
     "ioredis": "^5.8.1",
     "pino-pretty": "^13.1.2",
+    "undici": "^8.6.0",
     "zod": "^4.1.11"
   },
   "overrides": {

@@ -18,6 +18,7 @@ enum ApprovalStatus {
   approved
   rejected
   expired
+  consumed
 }
 
 enum RunStatus {
@@ -49,6 +50,7 @@ model ApiKey {
   name           String
   keyHash        String        @unique
   keyPrefix      String        @unique
+  scopes         Json          @default("[\"*\"]")
   lastUsedAt     DateTime?
   createdAt      DateTime      @default(now())
   revokedAt      DateTime?
@@ -152,6 +154,8 @@ model ApprovalRequest {
   resolvedBy         String?
   resolvedAt         DateTime?
   expiresAt          DateTime?
+  consumedAt         DateTime?
+  consumedByInvocationId String?
   createdAt          DateTime        @default(now())
   organization       Organization    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   session            Session         @relation(fields: [sessionId], references: [id], onDelete: Cascade)

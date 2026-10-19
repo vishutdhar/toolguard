@@ -1,4 +1,4 @@
-FROM node:20-alpine AS build
+FROM node:22-alpine AS build
 
 WORKDIR /app
 ENV PRISMA_ENGINES_CHECKSUM_IGNORE_MISSING=1
@@ -14,7 +14,7 @@ COPY docs ./docs
 COPY tsconfig.json ./tsconfig.json
 RUN npm run build
 
-FROM node:20-alpine AS runtime
+FROM node:22-alpine AS runtime
 
 WORKDIR /app
 
@@ -29,6 +29,12 @@ RUN npx prisma generate
 COPY --from=build /app/dist ./dist
 COPY --from=build /app/docs ./docs
 COPY --from=build /app/examples ./examples
+
+# Drop root privileges: run the migration + server as the unprivileged `node`
+# user that ships with the base image, so a process compromise is not already
+# root inside the container.
+RUN chown -R node:node /app
+USER node
 
 EXPOSE 3000
 
