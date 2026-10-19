@@ -1,113 +1,51 @@
 # ToolGuard
 
-**Authorize AI tool calls before they execute.**
+Human approval and an audit log for AI agents, before they take real actions.
 
-> **Status:** Open-source reference implementation. Not actively maintained;
-> no hosted demo. The architecture, code, and docs are intended as a working
-> reference for anyone building agent permissions infrastructure. Forks and
-> adopters welcome.
-
-ToolGuard is an open-source permissions API that sits between your AI agents and the tools they call. Define policies, enforce human approvals, track every action.
-
-## What's worth copying
-
-Even if you don't run ToolGuard end-to-end, several patterns inside it are
-uncommon in public OSS and worth lifting into your own agent infrastructure.
-
-- **Atomic compare-and-swap on approval resolution**
-  ([`src/infrastructure/prisma/store.ts:415-440`](src/infrastructure/prisma/store.ts))
-  — `updateApprovalRequest` accepts an `expectedStatus` and uses Prisma's
-  `updateMany` with a `where: { id, status: expectedStatus }` clause, throwing
-  a `409 APPROVAL_STATUS_CHANGED` if the row moved out from under you. This
-  closes the TOCTOU race that most agent-approval systems quietly have when
-  two reviewers click "approve" simultaneously. Concurrent regression test in
-  [`test/integration/store-contract.test.ts`](test/integration/store-contract.test.ts).
-
-- **DNS-rebind-aware webhook URL validation**
-  ([`src/services/webhook-service.ts:90-118`](src/services/webhook-service.ts))
-  — `validateWebhookUrl` blocks reserved hostnames *and* resolves the
-  hostname and rejects any IP in private/reserved ranges. Re-validates at
-  delivery time ([`webhook-service.ts:142-143`](src/services/webhook-service.ts))
-  to defend against rebinding between registration and fetch. (Caveat: there's
-  still a small validate→fetch window — see `TASKS.md` "Deferred" for the
-  socket-pinning close.)
-
-- **Server-authoritative tool catalog**
-  ([`src/services/authorization-service.ts:73-108`](src/services/authorization-service.ts))
-  — `tool.action`, `tool.resource`, `tool.riskLevel`, and `estimatedCostUsd`
-  are loaded from the server-side catalog and never trusted from the caller.
-  This is the difference between a permission system and a suggestion box;
-  if the agent's HTTP client could declare "this is low-risk", policies are
-  meaningless.
-
-- **Decision precedence + environment-conditional defaults**
-  ([`src/services/policy-service.ts:7-8`](src/services/policy-service.ts))
-  — Decisions are ordered `deny > require_approval > allow`, and when no
-  rule matches, the fallback is environment-aware: `DEV_DEFAULT_DECISION`
-  defaults to `allow`, `PROD_DEFAULT_DECISION` defaults to `require_approval`.
-  Closes the "forgot to write a prod policy → agent runs free" failure mode.
-
-- **Storage adapter parity via contract tests**
-  ([`test/integration/store-contract.test.ts`](test/integration/store-contract.test.ts))
-  — The same test suite runs against both the Prisma store and the in-memory
-  store. Useful pattern any time you want a fast in-process test backend
-  without it drifting from production behavior.
-
-- **HMAC-signed webhook contract**
-  ([`src/services/webhook-service.ts:145-150`](src/services/webhook-service.ts))
-  — `X-ToolGuard-Signature` is a SHA-256 HMAC over the raw request body using
-  the per-webhook secret. Standard pattern, but worth copying because it's
-  the minimum bar for a webhook receiver to trust the payload — and a lot of
-  agent projects skip it.
-
-If you only want one of these, the atomic CAS pattern and the
-server-authoritative catalog are the two that fail silently most often in
-hand-rolled implementations.
-
-```
-Agent calls stripe.refund($1,500)
-  → ToolGuard evaluates policy → DENIED (threshold exceeded)
-
-Agent calls gmail.send_email(external)
-  → ToolGuard evaluates policy → APPROVAL REQUIRED → human approves → ALLOWED
-
-Agent calls slack.post_message(internal)
-  → ToolGuard evaluates policy → ALLOWED
-```
+ToolGuard is an open-source API that sits between your agent and its tools. Before the agent sends an email, refunds a Stripe charge, or posts to Slack, it asks ToolGuard. Your policies decide whether the call is allowed, denied, or held for a person to approve, and every decision goes into an audit log you can replay.
 
 [![CI](https://github.com/vishutdhar/toolguard/actions/workflows/ci.yml/badge.svg)](https://github.com/vishutdhar/toolguard/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
+<!-- DEMO LINK: add the hosted demo URL here once it is live. -->
+
+```
+Agent calls stripe.refund($1,500)
+  -> policy: refunds over $1,000 are denied -> DENIED
+
+Agent calls gmail.send_email(external recipient)
+  -> policy: external email needs approval -> PENDING -> a person approves -> ALLOWED
+
+Agent calls slack.post_message(internal channel)
+  -> policy: internal Slack is fine -> ALLOWED
+```
+
 ## Why
 
-AI agents are getting access to real tools — email, payments, databases, shell. Without a permissions layer:
+Agents now get real credentials for email, payments, databases, and shells. Without a layer in between:
 
-- An agent can send emails to anyone, refund any amount, delete any record
-- There's no audit trail of what happened or why
-- There's no way to require human approval for high-risk actions
-- Policy changes require code deploys instead of config updates
+- An agent can email anyone, refund any amount, or delete any record.
+- Nobody can say afterward what the agent did or why.
+- There is no way to make a person sign off on the risky calls.
+- Changing what an agent may do means changing and redeploying its code.
 
-ToolGuard adds one API call before every tool execution. Your agent code barely changes — your policies do.
+With ToolGuard, the agent makes one API call before each tool runs. The rules live in ToolGuard, so you can change them without touching the agent.
 
 ## Features
 
-- **Policy engine** — declarative JSON rules matching on tool name, environment, risk level, payload fields
-- **Human-in-the-loop approvals** — high-risk actions pause until a human approves or rejects
-- **Audit log + replay** — every decision, approval, and tool execution is recorded and replayable
-- **Usage limits** — daily caps on actions, spend, and tokens per org or per tool
-- **Scoped sessions** — agents operate within declared permission scopes
-- **Environment enforcement** — production policies can't be bypassed by spoofing environments
-- **Server-side cost tracking** — estimated costs stored in the tool catalog, not trusted from callers
-- **Atomic approval resolution** — concurrent approvals can't double-resolve
-
-## Self-hosting
-
-There is no hosted demo. Run locally via the [Quick Start](#quick-start)
-below, or deploy your own instance. A Render Blueprint
-([`render.yaml`](render.yaml), [`docs/DEPLOY_RENDER.md`](docs/DEPLOY_RENDER.md))
-is included as a starting point.
+- Risky calls pause until a person approves or rejects them, and each approval can be used once.
+- Every decision, approval, and run event goes into an audit log, and you can replay any run.
+- Policies are JSON rules that match on tool name, environment, risk level, and payload fields.
+- API keys carry scopes, so the agent's key can request approvals but cannot grant them.
+- Daily caps limit actions, spend, and tokens per org and per tool.
+- Each session declares which tools the agent may use.
+- A tool's action, resource, risk level, and cost come from the server's catalog, never from the caller.
+- Webhook deliveries are signed with HMAC-SHA256.
+- There are SDKs for Python, with a LangChain handler, and TypeScript, with an OpenAI agent loop and an MCP gateway.
 
 ## Quick Start
+
+Requires Node.js 22.19 or newer.
 
 ```bash
 git clone https://github.com/vishutdhar/toolguard.git
@@ -115,26 +53,26 @@ cd toolguard
 npm install
 ```
 
-### Try it without Docker (in-memory mode)
+### Try it without Docker
 
 ```bash
 npm run demo
 ```
 
-This seeds 5 tools, 5 policies, and runs a full authorization flow — Slack allowed, Gmail requires approval, Stripe refund denied.
+This seeds 5 tools and 5 policies in memory and runs a full flow: the Slack post is allowed, the Gmail send needs approval, and the Stripe refund is denied.
 
 ### Run the server
 
 ```bash
-# In-memory (no dependencies)
+# In memory, no dependencies
 STORAGE_MODE=memory npm run dev
 
-# With Postgres + Redis
+# With Postgres and Redis
 cp .env.example .env
 docker compose up
 ```
 
-### Bootstrap an organization
+### Create an organization
 
 ```bash
 curl -s -X POST http://localhost:3000/v1/organizations \
@@ -142,7 +80,7 @@ curl -s -X POST http://localhost:3000/v1/organizations \
   -d '{"name": "My Org", "apiKeyName": "Default"}' | jq .
 ```
 
-Save `rawApiKey` and `organization.id` from the response.
+Save `rawApiKey` and `organization.id` from the response. This first key has full access.
 
 ### Authorize a tool call
 
@@ -168,11 +106,60 @@ curl -s -X POST http://localhost:3000/v1/tool/authorize \
 }
 ```
 
-Swagger docs at `http://localhost:3000/docs` when `ENABLE_SWAGGER=true`.
+Swagger docs are at `http://localhost:3000/docs` when `ENABLE_SWAGGER=true`.
 
-## SDK Packages
+## Python SDK
 
-### `@toolguard/client` — TypeScript Client
+[`packages/python`](packages/python) has a sync and an async client, a webhook signature helper, and a LangChain callback handler. It is not on PyPI yet, so install it from the repo:
+
+```bash
+pip install "toolguard[langchain] @ git+https://github.com/vishutdhar/toolguard#subdirectory=packages/python"
+```
+
+```python
+from toolguard import ToolGuard
+
+tg = ToolGuard(api_key=AGENT_KEY, base_url="http://localhost:3000", org_id=ORG_ID, agent_id=AGENT_ID)
+
+decision = tg.authorize(session_id, {"name": "stripe.refund"}, payload_summary={"amountUsd": 40})
+
+if decision.allowed:
+    ...  # run the refund
+elif decision.pending_approval:
+    # Block until a person resolves it, then authorize again with the approval id.
+    decision = tg.wait_for_approval(
+        decision.approval_id, session_id, {"name": "stripe.refund"}, payload_summary={"amountUsd": 40}
+    )
+else:
+    print("denied:", decision.reason_codes)
+```
+
+### LangChain
+
+`ToolGuardCallbackHandler` authorizes every tool call in `on_tool_start`. A denied call raises `ToolCallDenied` and a call that needs approval raises `ApprovalRequired`, so the tool never runs.
+
+```python
+from toolguard.langchain import ToolGuardCallbackHandler, ToolMapping
+
+handler = ToolGuardCallbackHandler(
+    tg,
+    session_id,
+    tool_map={
+        "issue_refund": ToolMapping(
+            name="stripe.refund",
+            payload_summary=lambda args: {"amountUsd": args["amount_usd"]},
+        ),
+    },
+)
+
+agent.invoke({"input": "Refund order 4821"}, config={"callbacks": [handler]})
+```
+
+Pass `wait_for_approval=True` to make the handler wait for a person instead of raising. See the [Python SDK README](packages/python/README.md) for async usage, webhooks, and the full method list.
+
+## TypeScript SDKs
+
+### `@toolguard/client`
 
 ```typescript
 import { ToolGuard } from '@toolguard/client';
@@ -184,20 +171,20 @@ const tg = new ToolGuard({
   agentId: 'agt_...',
 });
 
-const session = await tg.createSession({ scopes: ['email:send'] });
+const session = await tg.createSession({ scopes: ['gmail:send'] });
 const result = await tg.authorize({
   sessionId: session.id,
   tool: { name: 'gmail.send_email' },
 });
 
 if (result.allowed) { /* execute */ }
-else if (result.pendingApproval) { /* wait for human */ }
+else if (result.pendingApproval) { /* wait for a person */ }
 else { /* denied */ }
 ```
 
-### `@toolguard/openai` — OpenAI Agent Loop
+### `@toolguard/openai`
 
-Wraps the OpenAI chat completions loop — every tool call is authorized automatically:
+Wraps the OpenAI chat completions loop and authorizes every tool call:
 
 ```typescript
 import { runAgent } from '@toolguard/openai';
@@ -210,20 +197,39 @@ const result = await runAgent({
   tools: guardedTools,
   sessionId: session.id,
 });
-// result.message — final assistant response
-// result.iterations — number of LLM round-trips
+// result.message: final assistant response
+// result.iterations: number of LLM round trips
 ```
 
-### `@toolguard/mcp-proxy` — MCP Gateway
+### `@toolguard/mcp-proxy`
 
-Drop-in proxy for any MCP server. Authorizes every `tools/call` before forwarding to the upstream server:
+A proxy for any MCP server. It authorizes every `tools/call` before forwarding it upstream:
 
 ```bash
 export TOOLGUARD_API_KEY="tg_..."
 toolguard-mcp --config gateway.json -- npx @modelcontextprotocol/server-filesystem /tmp
 ```
 
-No changes to your MCP client or server — ToolGuard sits in between. See [`examples/mcp-gateway-config.json`](examples/mcp-gateway-config.json).
+Your MCP client and server stay unchanged. See [`examples/mcp-gateway-config.json`](examples/mcp-gateway-config.json).
+
+## API keys and approvals
+
+A key's `scopes` decide what it can do. `["*"]` is full access.
+
+- Resolving an approval needs `approvals:resolve`. Give the agent a key with `["tool:authorize"]` and it can ask for approvals but cannot approve its own requests.
+- Creating a key needs `api_keys:create`, and the new key's scopes must be a subset of the caller's. A restricted key that asks for more gets `403 SCOPE_ESCALATION`.
+- After approval, the agent calls `/v1/tool/authorize` again with the `approvalId` and an `invocationId`. The approval is consumed once, and a retry with the same `invocationId` gets the same answer.
+
+The approval dashboard in [`dashboard/`](dashboard) shows pending and resolved approvals and lets a person approve or reject them. Resolving needs a key with `approvals:resolve`.
+
+## Deploy
+
+Two Render Blueprints are included:
+
+- [`render.yaml`](render.yaml): one free web service with in-memory storage. Good for trying it out. Data is lost when the service restarts.
+- [`render.prisma.yaml`](render.prisma.yaml): Postgres, Redis, the API, and the worker on paid plans.
+
+[`docs/DEPLOY_RENDER.md`](docs/DEPLOY_RENDER.md) walks through both. The Docker Compose stack in [`docker-compose.yml`](docker-compose.yml) runs the same services anywhere.
 
 ## Architecture
 
@@ -242,33 +248,43 @@ No changes to your MCP client or server — ToolGuard sits in between. See [`exa
         └─────────┘  └─────────┘  └────────┘
 ```
 
-- **Server:** Fastify, TypeScript, Zod validation
-- **Storage:** Postgres (Prisma) or in-memory for dev/test
-- **Queue:** Redis + BullMQ for approval expiry
-- **Auth:** Org-scoped API keys (`Authorization: Bearer tg_...`)
+- Server: Fastify, TypeScript, Zod validation
+- Storage: Postgres (Prisma), or in memory for dev, tests, and the free demo
+- Queue: Redis and BullMQ for approval expiry
+- Auth: org-scoped API keys (`Authorization: Bearer tg_...`) with scopes
 
 ## API Reference
 
 | Method | Path | Description |
 |--------|------|-------------|
-| `POST` | `/v1/organizations` | Bootstrap org + first API key |
-| `POST` | `/v1/agents` | Register an agent |
+| `GET` | `/healthz` | Health and storage mode |
+| `POST` | `/v1/organizations` | Create an org and its first API key |
+| `POST` | `/v1/api-keys` | Create an API key with scopes |
+| `POST`, `GET` | `/v1/agents` | Register or list agents |
 | `POST` | `/v1/sessions` | Start a scoped session |
-| `POST` | `/v1/tools` | Register a tool in the catalog |
+| `POST`, `GET` | `/v1/tools` | Register or list catalog tools |
 | `POST` | `/v1/policies` | Create a policy |
+| `GET` | `/v1/policies/:id` | Get a policy and its versions |
 | `POST` | `/v1/policies/:id/versions` | Add a policy version |
-| **`POST`** | **`/v1/tool/authorize`** | **Authorize a tool call** |
+| `POST` | `/v1/tool/authorize` | Authorize a tool call |
 | `POST` | `/v1/policy/evaluate` | Dry-run policy evaluation |
-| `POST` | `/v1/approvals/request` | Request human approval |
-| `POST` | `/v1/approvals/:id/resolve` | Approve or reject |
 | `POST` | `/v1/usage/check` | Check usage limits |
+| `POST` | `/v1/approvals/request` | Request an approval by hand |
+| `GET` | `/v1/approvals` | List approvals (cursor pagination) |
+| `GET` | `/v1/approvals/:id` | Get an approval |
+| `POST` | `/v1/approvals/:id/resolve` | Approve or reject |
+| `POST`, `GET` | `/v1/audit/events` | Write or list audit events (cursor pagination) |
 | `POST` | `/v1/runs` | Start a run |
 | `POST` | `/v1/runs/:id/complete` | Complete a run |
-| `GET`  | `/v1/runs/:id/replay` | Replay a run's audit timeline |
+| `GET` | `/v1/runs/:id/replay` | Replay a run's audit timeline |
+| `POST`, `GET` | `/v1/webhooks` | Register or list webhooks |
+| `DELETE` | `/v1/webhooks/:id` | Delete a webhook |
+
+Errors use one shape: `{"error": "CODE", "message": "...", "details": {...}}`.
 
 ## Policy Rules
 
-Policies are declarative JSON rules. The `if` block matches against tool metadata, environment, and payload fields. The `then` block specifies the decision.
+Policies are JSON rules. The `if` block matches tool metadata, environment, and payload fields. The `then` block gives the decision.
 
 ```json
 {
@@ -284,24 +300,48 @@ Policies are declarative JSON rules. The `if` block matches against tool metadat
 }
 ```
 
-Decision precedence: `deny` > `require_approval` > `allow`. When no rule matches, the server falls back to `DEV_DEFAULT_DECISION` or `PROD_DEFAULT_DECISION`.
+Decision precedence is `deny`, then `require_approval`, then `allow`. When no rule matches, the server falls back to `DEV_DEFAULT_DECISION` or `PROD_DEFAULT_DECISION`.
 
 ## Default Authorization Behavior
 
-- Development defaults to `allow` when no rule matches
-- Production defaults to `require_approval` when no rule matches
-- Tool `action`, `resource`, and `riskLevel` are loaded from the server-side catalog — callers cannot override them
-- Session environment is authoritative and must match the agent's configured environment
+- Development defaults to `allow` when no rule matches.
+- Production, and any environment label that is not a known dev environment, defaults to `require_approval`.
+- Tool `action`, `resource`, and `riskLevel` come from the server-side catalog. Callers cannot override them.
+- The session environment must match the agent's configured environment.
+
+## Design notes
+
+Some parts of the code handle cases that hand-rolled approval systems often miss.
+
+Approval resolution is atomic. `updateApprovalRequest` in [`src/infrastructure/prisma/store.ts`](src/infrastructure/prisma/store.ts) takes an `expectedStatus` and updates with `where: { id, status: expectedStatus }`, so if two reviewers click at once, the second gets `409 APPROVAL_STATUS_CHANGED`. A concurrency test is in [`test/integration/store-contract.test.ts`](test/integration/store-contract.test.ts).
+
+Webhook delivery is protected against SSRF and DNS rebinding. [`src/services/webhook-service.ts`](src/services/webhook-service.ts) blocks reserved hostnames, resolves the host, and rejects private or reserved IPs, both at registration and again at delivery. The delivery connection is pinned to the IP that was just validated, so the HTTP client cannot resolve the name a second time to a different address. A host with no DNS answer is refused.
+
+The tool catalog is server-authoritative. In [`src/services/authorization-service.ts`](src/services/authorization-service.ts), `tool.action`, `tool.resource`, `tool.riskLevel`, and `estimatedCostUsd` come from the catalog. If the agent could declare its own call low risk, the policies would not mean much.
+
+With no matching rule, production falls back to `require_approval`, so a missing prod policy does not let the agent run unchecked.
+
+The same contract tests run against the Prisma store and the in-memory store, which keeps the fast test backend in line with production.
+
+`X-ToolGuard-Signature` is the hex HMAC-SHA256 of the raw webhook body, keyed with the webhook secret. The Python SDK has `verify_webhook_signature()` for receivers.
 
 ## Development
 
 ```bash
 npm install
-npm run dev              # hot-reload server (in-memory)
-npm test                 # 32 core + 46 package tests
-npm run typecheck        # type check server + packages
-npm run build            # build server
-npm run build:packages   # build all SDK packages
+npm run dev              # hot-reload server (in memory)
+npm test                 # server tests
+npm run typecheck        # type check the server
+npm run build            # build the server
+npm run build:packages   # build the TypeScript SDK packages
+```
+
+Python SDK:
+
+```bash
+cd packages/python
+pip install -e ".[dev]"
+pytest                   # integration tests need `npm run build` at the repo root
 ```
 
 ### Testing with Postgres
@@ -325,10 +365,12 @@ npm run acceptance:live
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `STORAGE_MODE` | `prisma` | `prisma` or `memory` |
-| `DATABASE_URL` | — | Postgres connection string |
-| `REDIS_URL` | — | Redis connection string |
+| `DATABASE_URL` | local Postgres | Postgres connection string |
+| `REDIS_URL` | local Redis | Redis connection string |
 | `ENABLE_SWAGGER` | `true` | Swagger UI at `/docs` |
-| `DEV_DEFAULT_DECISION` | `allow` | Default when no rule matches (non-prod) |
+| `ALLOW_SELF_SIGNUP` | `true` | Allow `POST /v1/organizations` without a key |
+| `CORS_ALLOWED_ORIGINS` | empty | Comma-separated origins allowed from a browser, such as the dashboard |
+| `DEV_DEFAULT_DECISION` | `allow` | Default when no rule matches (dev) |
 | `PROD_DEFAULT_DECISION` | `require_approval` | Default when no rule matches (prod) |
 | `APPROVAL_TTL_MINUTES` | `60` | Approval expiration window |
 | `ORG_DAILY_MAX_ACTIONS` | `1000` | Org daily action limit |
@@ -339,7 +381,7 @@ See [`.env.example`](.env.example) for the full list.
 
 ## Contributing
 
-Contributions welcome. Please open an issue first to discuss what you'd like to change.
+Contributions are welcome. Please open an issue first to discuss what you'd like to change.
 
 ## License
 
